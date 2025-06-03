@@ -12,7 +12,7 @@ class DocumentSplitterTest extends TestCase
     {
         $text = "This is a short text.";
         $splitter = new DocumentSplitter(chunkSize: 100, chunkOverlap: 0, minChunkSize: 10);
-        
+
         $chunks = $splitter->splitText($text);
 
         $this->assertCount(1, $chunks);
@@ -33,8 +33,8 @@ class DocumentSplitterTest extends TestCase
         }
 
         $this->assertGreaterThanOrEqual(2, count($chunks));
-        
-        $chunksWithFirstParagraph = array_filter($chunks, fn($chunk) => str_contains($chunk, "First paragraph"));
+
+        $chunksWithFirstParagraph = array_filter($chunks, fn ($chunk) => str_contains($chunk, "First paragraph"));
         $this->assertNotEmpty($chunksWithFirstParagraph, "Didn't find any chunk containing 'First paragraph'.");
     }
 
@@ -92,15 +92,15 @@ class DocumentSplitterTest extends TestCase
         $chunks = $splitter->splitText($htmlText);
 
         $this->assertGreaterThan(1, count($chunks));
-        
-        $chunksWithHtmlContent = array_filter($chunks, fn($chunk) => str_contains($chunk, '<') || str_contains($chunk, 'Paragraph'));
+
+        $chunksWithHtmlContent = array_filter($chunks, fn ($chunk) => str_contains($chunk, '<') || str_contains($chunk, 'Paragraph'));
         $this->assertNotEmpty($chunksWithHtmlContent);
     }
 
     public function test_split_document()
     {
         $content = "This is a long document that will be divided into multiple parts to test the complete functionality.";
-        
+
         $document = new Document($content);
         $document->sourceName = "test.txt";
         $document->sourceType = "text";
@@ -109,7 +109,7 @@ class DocumentSplitterTest extends TestCase
         $splitDocuments = $splitter->splitDocument($document);
 
         $this->assertGreaterThan(1, count($splitDocuments));
-        
+
         foreach ($splitDocuments as $doc) {
             $this->assertNotEmpty($doc->hash);
             $this->assertNotEmpty($doc->id);
@@ -122,7 +122,7 @@ class DocumentSplitterTest extends TestCase
     public function test_split_long_text_file()
     {
         $content = file_get_contents(__DIR__.'/stubs/long-text.txt');
-        
+
         $splitter = new DocumentSplitter(chunkSize: 500, minChunkSize: 50, chunkOverlap: 50);
         $chunks = $splitter->splitText($content);
 

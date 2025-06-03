@@ -185,7 +185,7 @@ class DocumentSplitter
 
     public function splitDocuments(array $documents): array
     {
-        return array_map(fn($document) => $this->splitDocument($document), $documents);
+        return array_map(fn ($document) => $this->splitDocument($document), $documents);
     }
 
     /**
@@ -212,7 +212,7 @@ class DocumentSplitter
         $rawChunks = $this->splitRecursively($normalized, $this->separators);
 
         // Remove any empty fragments or fragments composed only of whitespace
-        $filtered = array_filter($rawChunks, function(string $c) {
+        $filtered = array_filter($rawChunks, function (string $c) {
             return \mb_strlen(\trim($c)) > 0;
         });
 
