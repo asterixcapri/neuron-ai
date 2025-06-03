@@ -75,12 +75,16 @@ class FileDataLoader extends AbstractDataLoader
             closedir($handle);
         }
 
-        return DocumentSplitter::splitDocuments(
-            $documents,
-            $this->maxLength,
-            $this->separator,
-            $this->wordOverlap
+        $splitter = new DocumentSplitter(
+            chunkSize: $this->chunkSize,
+            chunkOverlap: $this->chunkOverlap,
+            minChunkSize: $this->minChunkSize
         );
+
+        $splitter->withSeparators($this->separators);
+        $splitter->forLanguage($this->language);
+
+        return $splitter->splitDocuments($documents);
     }
 
     /**

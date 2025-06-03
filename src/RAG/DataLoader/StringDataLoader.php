@@ -12,11 +12,15 @@ class StringDataLoader extends AbstractDataLoader
 
     public function getDocuments(): array
     {
-        return DocumentSplitter::splitDocument(
-            new Document($this->content),
-            $this->maxLength,
-            $this->separator,
-            $this->wordOverlap
+        $splitter = new DocumentSplitter(
+            chunkSize: $this->chunkSize,
+            chunkOverlap: $this->chunkOverlap,
+            minChunkSize: $this->minChunkSize
         );
+
+        $splitter->withSeparators($this->separators);
+        $splitter->forLanguage($this->language);
+
+        return $splitter->splitDocument(new Document($this->content));
     }
 }
