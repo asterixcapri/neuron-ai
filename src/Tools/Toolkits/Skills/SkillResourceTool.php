@@ -12,7 +12,7 @@ use NeuronAI\Tools\TrackByInputs;
 
 use function in_array;
 
-class SkillTool extends Tool implements HasRunKey
+class SkillResourceTool extends Tool implements HasRunKey
 {
     use TrackByInputs;
 
@@ -23,7 +23,7 @@ class SkillTool extends Tool implements HasRunKey
         protected SkillRepository $repository,
         protected array $skillNames,
     ) {
-        parent::__construct('skill', 'Load an available skill\'s instructions.');
+        parent::__construct('skill_resource', 'Read one textual file from an available skill package.');
     }
 
     protected function properties(): array
@@ -32,19 +32,25 @@ class SkillTool extends Tool implements HasRunKey
             new ToolProperty(
                 name: 'name',
                 type: PropertyType::STRING,
-                description: 'The name of the skill to load.',
+                description: 'The name of the skill whose resource to read.',
                 required: true,
                 enum: $this->skillNames,
+            ),
+            new ToolProperty(
+                name: 'path',
+                type: PropertyType::STRING,
+                description: 'The file path relative to the skill package.',
+                required: true,
             ),
         ];
     }
 
-    public function __invoke(string $name): string
+    public function __invoke(string $name, string $path): string
     {
         if (!in_array($name, $this->skillNames, true)) {
             return "Skill \"{$name}\" is not available.";
         }
 
-        return $this->repository->readInstructions($name);
+        return $this->repository->readResource($name, $path);
     }
 }

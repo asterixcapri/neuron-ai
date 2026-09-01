@@ -33,8 +33,8 @@ class SkillToolkit extends AbstractToolkit
         return "Available skills:\n".implode("\n", $catalog)
             ."\nUse the `skill` tool to load a relevant skill's complete instructions before following them."
             .' Skill instructions may reference other files in their package.'
-            .' Always load every referenced file by calling `skill` with its `path` input.'
-            .' The `skill` tool only reads text and never executes scripts.'
+            .' Always load every referenced file with the `skill_resource` tool.'
+            .' The `skill` and `skill_resource` tools only read text and never execute scripts.'
             .' If a loaded file is a script and an appropriate execution tool is available,'
             .' use that separate tool to execute the loaded contents.';
     }
@@ -50,6 +50,9 @@ class SkillToolkit extends AbstractToolkit
             $this->catalog,
         );
 
-        return [new SkillTool($this->repository, $names)];
+        return [
+            new SkillTool($this->repository, $names),
+            new SkillResourceTool($this->repository, $names),
+        ];
     }
 }
