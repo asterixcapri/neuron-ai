@@ -23,7 +23,7 @@ class SkillTool extends Tool implements HasRunKey
         protected SkillRepositoryInterface $repository,
         protected array $skillNames,
     ) {
-        parent::__construct('skill', 'Load the complete instructions for an available skill.');
+        parent::__construct('skill', 'Load an available skill\'s instructions or one textual supporting file.');
     }
 
     protected function properties(): array
@@ -36,15 +36,21 @@ class SkillTool extends Tool implements HasRunKey
                 required: true,
                 enum: $this->skillNames,
             ),
+            new ToolProperty(
+                name: 'path',
+                type: PropertyType::STRING,
+                description: 'An optional file path relative to the skill directory.',
+                required: false,
+            ),
         ];
     }
 
-    public function __invoke(string $name): string
+    public function __invoke(string $name, ?string $path = null): string
     {
         if (!in_array($name, $this->skillNames, true)) {
             return "Skill \"{$name}\" is not available.";
         }
 
-        return $this->repository->read($name);
+        return $this->repository->read($name, $path);
     }
 }

@@ -23,12 +23,12 @@ use PHPUnit\Framework\TestCase;
 use function bin2hex;
 use function file_exists;
 use function file_put_contents;
+use function is_dir;
 use function mkdir;
 use function random_bytes;
 use function rmdir;
 use function sys_get_temp_dir;
 use function unlink;
-use function is_dir;
 
 class SkillToolkitTest extends TestCase
 {
@@ -47,10 +47,18 @@ class SkillToolkitTest extends TestCase
 
             Prefer direct sentences.
             SKILL);
+        mkdir($this->skillsRoot.'/writing/references');
+        file_put_contents($this->skillsRoot.'/writing/references/style.md', "# Style guide\n\nUse concrete words.\n");
     }
 
     protected function tearDown(): void
     {
+        if (file_exists($this->skillsRoot.'/writing/references/style.md')) {
+            unlink($this->skillsRoot.'/writing/references/style.md');
+        }
+        if (is_dir($this->skillsRoot.'/writing/references')) {
+            rmdir($this->skillsRoot.'/writing/references');
+        }
         if (file_exists($this->skillsRoot.'/writing/SKILL.md')) {
             unlink($this->skillsRoot.'/writing/SKILL.md');
         }
@@ -71,6 +79,7 @@ class SkillToolkitTest extends TestCase
         $nameProperty = $skillTool->getProperties()[0];
         $this->assertInstanceOf(ToolProperty::class, $nameProperty);
         $this->assertSame(['writing'], $nameProperty->getEnum());
+        $this->assertCount(2, $skillTool->getProperties());
 
         $provider = new FakeAIProvider(
             new ToolCallMessage(null, [
@@ -97,6 +106,32 @@ class SkillToolkitTest extends TestCase
         ));
     }
 
+    public function test_agent_reads_a_resource_through_the_same_tool_loop(): void
+    {
+        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
+        $skillTool = $toolkit->tools()[0];
+        $provider = new FakeAIProvider(
+            new ToolCallMessage(null, [
+                (clone $skillTool)->setCallId('call_1')->setInputs([
+                    'name' => 'writing',
+                    'path' => 'references/style.md',
+                ]),
+            ]),
+            new AssistantMessage('I read the style guide.'),
+        );
+        $agent = Agent::make()
+            ->setAiProvider($provider)
+            ->setInstructions('Be helpful.')
+            ->addTool($toolkit);
+
+        $agent->chat(new UserMessage('Read the style guide.'))->getMessage();
+
+        $provider->assertSent(fn (RequestRecord $record): bool => $this->hasToolResult(
+            $record,
+            "# Style guide\n\nUse concrete words.\n",
+        ));
+    }
+
     public function test_unknown_skill_is_a_model_readable_result(): void
     {
         $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[0];
@@ -106,29 +141,41 @@ class SkillToolkitTest extends TestCase
         $this->assertSame('Skill "unknown" is not available.', $tool->getResult());
     }
 
+    public function test_invalid_resource_path_is_a_model_readable_result(): void
+    {
+        $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[0];
+        $tool->setInputs(['name' => 'writing', 'path' => '../secret.md']);
+        $tool->execute();
+
+        $this->assertSame('Resource path "../secret.md" is invalid.', $tool->getResult());
+    }
+
     public function test_tool_delegates_reads_to_a_storage_neutral_repository(): void
     {
         $repository = new class () implements SkillRepositoryInterface {
             public ?string $requestedName = null;
+            public ?string $requestedPath = null;
 
             public function catalog(): array
             {
                 return [new SkillCatalogEntry('remote', 'Remote skill')];
             }
 
-            public function read(string $name): string
+            public function read(string $name, ?string $path = null): string
             {
                 $this->requestedName = $name;
+                $this->requestedPath = $path;
 
-                return 'Remote instructions.';
+                return $path === null ? 'Remote instructions.' : 'Remote resource.';
             }
         };
         $tool = (new SkillToolkit($repository))->tools()[0];
-        $tool->setInputs(['name' => 'remote']);
+        $tool->setInputs(['name' => 'remote', 'path' => 'references/api.md']);
         $tool->execute();
 
-        $this->assertSame('Remote instructions.', $tool->getResult());
+        $this->assertSame('Remote resource.', $tool->getResult());
         $this->assertSame('remote', $repository->requestedName);
+        $this->assertSame('references/api.md', $repository->requestedPath);
     }
 
     public function test_unexpected_repository_failures_remain_exceptions(): void
@@ -139,7 +186,7 @@ class SkillToolkitTest extends TestCase
                 return [new SkillCatalogEntry('broken', 'Broken skill')];
             }
 
-            public function read(string $name): string
+            public function read(string $name, ?string $path = null): string
             {
                 throw new LogicException('Storage failed unexpectedly.');
             }
@@ -169,7 +216,7 @@ class SkillToolkitTest extends TestCase
                 return $this->entries;
             }
 
-            public function read(string $name): string
+            public function read(string $name, ?string $path = null): string
             {
                 return $name;
             }
@@ -182,14 +229,16 @@ class SkillToolkitTest extends TestCase
         $tool = $toolkit->tools()[0];
         $this->assertInstanceOf(SkillTool::class, $tool);
         $tool->setInputs(['name' => 'first']);
-        $firstKey = $tool->getRunKey();
-        $tool->setInputs(['name' => 'second']);
+        $instructionsKey = $tool->getRunKey();
+        $tool->setInputs(['name' => 'first', 'path' => 'references/details.md']);
 
-        $this->assertNotSame($firstKey, $tool->getRunKey());
+        $this->assertNotSame($instructionsKey, $tool->getRunKey());
     }
 
     public function test_empty_catalog_contributes_neither_guidelines_nor_tools(): void
     {
+        unlink($this->skillsRoot.'/writing/references/style.md');
+        rmdir($this->skillsRoot.'/writing/references');
         unlink($this->skillsRoot.'/writing/SKILL.md');
         rmdir($this->skillsRoot.'/writing');
         $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
