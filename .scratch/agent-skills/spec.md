@@ -59,7 +59,7 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 39. As a framework maintainer, I want the feature to work through the existing Agent tool loop, so that chat, streaming, and structured-output modes need no special branches.
 40. As a framework maintainer, I want tests focused on the Agent/toolkit and repository contracts, so that private parsing and caching details can change safely.
 41. As an Agent user, I want the toolkit guidelines to explain that skill instructions may reference package files, so that the model continues progressive disclosure correctly.
-42. As an Agent user, I want referenced files loaded through the same `skill` tool and scripts handed to an appropriate execution tool, so that reading remains confined while execution uses application-provided capabilities.
+42. As an Agent user, I want referenced files loaded through the same `skill` tool and loaded script contents handed to an appropriate execution tool when one is available, so that reading remains confined while optional execution uses application-provided capabilities.
 
 ## Implementation Decisions
 
@@ -74,7 +74,8 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 - The model-facing tool is named `skill`, and its implementation type is named `SkillTool`.
 - The tool accepts required `name` and optional `path` inputs. The name schema is constrained to the catalog snapshot when at least one valid skill exists.
 - The toolkit places the catalog and concise loading instructions in its existing toolkit guidelines. The catalog contains only name and description; complete bodies and resources are never included there.
-- The toolkit guidelines state that skill instructions may reference other package files, that referenced files must be loaded by calling `skill` with `path`, and that a referenced file under `scripts/` must then be executed with an appropriate application-provided execution tool.
+- The toolkit guidelines state that skill instructions may reference other package files and that every referenced file must first be loaded by calling `skill` with `path`.
+- When the loaded file is a script and an appropriate execution tool is available, the guidelines direct the model to use that separate tool to execute the loaded contents.
 - The `skill` tool remains text-only and never executes scripts itself.
 - When no valid skills exist, the toolkit returns no guidelines and provides no tools.
 - Calling `skill` without `path` returns only the trimmed Markdown body after the frontmatter closing delimiter.
