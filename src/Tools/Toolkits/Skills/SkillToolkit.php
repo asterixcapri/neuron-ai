@@ -14,7 +14,7 @@ class SkillToolkit extends AbstractToolkit
     /** @var SkillCatalogEntry[] */
     protected array $catalog;
 
-    public function __construct(protected SkillRepositoryInterface $repository)
+    public function __construct(protected SkillRepository $repository)
     {
         $this->catalog = $repository->catalog();
     }

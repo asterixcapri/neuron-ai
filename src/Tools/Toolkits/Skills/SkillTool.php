@@ -20,7 +20,7 @@ class SkillTool extends Tool implements HasRunKey
      * @param string[] $skillNames
      */
     public function __construct(
-        protected SkillRepositoryInterface $repository,
+        protected SkillRepository $repository,
         protected array $skillNames,
     ) {
         parent::__construct('skill', 'Load an available skill\'s instructions or one textual supporting file.');
@@ -51,6 +51,8 @@ class SkillTool extends Tool implements HasRunKey
             return "Skill \"{$name}\" is not available.";
         }
 
-        return $this->repository->read($name, $path);
+        return $path === null
+            ? $this->repository->readInstructions($name)
+            : $this->repository->readResource($name, $path);
     }
 }

@@ -13,13 +13,14 @@ use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\RequestRecord;
 use NeuronAI\Tools\ToolProperty;
-use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillRepository;
-use NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry;
-use NeuronAI\Tools\Toolkits\Skills\SkillRepositoryInterface;
+use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillStorage;
+use NeuronAI\Tools\Toolkits\Skills\SkillRepository;
+use NeuronAI\Tools\Toolkits\Skills\SkillStorageInterface;
 use NeuronAI\Tools\Toolkits\Skills\SkillToolkit;
 use NeuronAI\Tools\Toolkits\Skills\SkillTool;
 use PHPUnit\Framework\TestCase;
 
+use function array_keys;
 use function array_unique;
 use function bin2hex;
 use function file_exists;
@@ -71,7 +72,7 @@ class SkillToolkitTest extends TestCase
 
     public function test_agent_discloses_catalog_and_loads_instructions_through_the_tool_loop(): void
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
+        $toolkit = new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot)));
         $tools = $toolkit->tools();
         $this->assertCount(1, $tools);
         $skillTool = $tools[0];
@@ -120,7 +121,7 @@ class SkillToolkitTest extends TestCase
 
     public function test_agent_reads_a_resource_through_the_same_tool_loop(): void
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
+        $toolkit = new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot)));
         $skillTool = $toolkit->tools()[0];
         $provider = new FakeAIProvider(
             new ToolCallMessage(null, [
@@ -146,7 +147,7 @@ class SkillToolkitTest extends TestCase
 
     public function test_unknown_skill_is_a_model_readable_result(): void
     {
-        $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[0];
+        $tool = (new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot))))->tools()[0];
         $tool->setInputs(['name' => 'unknown']);
         $tool->execute();
 
@@ -155,7 +156,7 @@ class SkillToolkitTest extends TestCase
 
     public function test_invalid_resource_path_is_a_model_readable_result(): void
     {
-        $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[0];
+        $tool = (new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot))))->tools()[0];
         $tool->setInputs(['name' => 'writing', 'path' => '../secret.md']);
         $tool->execute();
 
@@ -164,45 +165,57 @@ class SkillToolkitTest extends TestCase
 
     public function test_tool_delegates_reads_to_a_storage_neutral_repository(): void
     {
-        $repository = new class () implements SkillRepositoryInterface {
-            public ?string $requestedName = null;
+        $storage = new class () implements SkillStorageInterface {
+            public ?string $requestedPackage = null;
             public ?string $requestedPath = null;
 
-            public function catalog(): array
+            public function packages(): array
             {
-                return [new SkillCatalogEntry('remote', 'Remote skill')];
+                return ['remote'];
             }
 
-            public function read(string $name, ?string $path = null): string
+            public function read(string $package, string $path): string
             {
-                $this->requestedName = $name;
+                $this->requestedPackage = $package;
                 $this->requestedPath = $path;
 
-                return $path === null ? 'Remote instructions.' : 'Remote resource.';
+                return $path === 'SKILL.md'
+                    ? "---\nname: remote\ndescription: Remote skill\n---\nRemote instructions."
+                    : 'Remote resource.';
             }
         };
+        $repository = new SkillRepository($storage);
+        $storage->requestedPackage = null;
+        $storage->requestedPath = null;
         $tool = (new SkillToolkit($repository))->tools()[0];
         $tool->setInputs(['name' => 'remote', 'path' => 'references/api.md']);
         $tool->execute();
 
         $this->assertSame('Remote resource.', $tool->getResult());
-        $this->assertSame('remote', $repository->requestedName);
-        $this->assertSame('references/api.md', $repository->requestedPath);
+        $this->assertSame('remote', $storage->requestedPackage);
+        $this->assertSame('references/api.md', $storage->requestedPath);
     }
 
     public function test_unexpected_repository_failures_remain_exceptions(): void
     {
-        $repository = new class () implements SkillRepositoryInterface {
-            public function catalog(): array
+        $storage = new class () implements SkillStorageInterface {
+            public int $reads = 0;
+
+            public function packages(): array
             {
-                return [new SkillCatalogEntry('broken', 'Broken skill')];
+                return ['broken'];
             }
 
-            public function read(string $name, ?string $path = null): string
+            public function read(string $package, string $path): string
             {
+                if ($this->reads++ === 0) {
+                    return "---\nname: broken\ndescription: Broken skill\n---\nInstructions.";
+                }
+
                 throw new LogicException('Storage failed unexpectedly.');
             }
         };
+        $repository = new SkillRepository($storage);
         $tool = (new SkillToolkit($repository))->tools()[0];
         $tool->setInputs(['name' => 'broken']);
 
@@ -214,30 +227,28 @@ class SkillToolkitTest extends TestCase
 
     public function test_toolkit_snapshots_custom_repository_catalog_and_tracks_names_and_paths_separately(): void
     {
-        $repository = new class () implements SkillRepositoryInterface {
-            /** @var SkillCatalogEntry[] */
-            public array $entries;
+        $storage = new class () implements SkillStorageInterface {
+            /** @var array<string, string> */
+            public array $manifests = [
+                'first' => "---\nname: first\ndescription: First skill\n---\nFirst.",
+                'second' => "---\nname: second\ndescription: Second skill\n---\nSecond.",
+            ];
 
-            public function __construct()
+            public function packages(): array
             {
-                $this->entries = [
-                    new SkillCatalogEntry('first', 'First skill'),
-                    new SkillCatalogEntry('second', 'Second skill'),
-                ];
+                return array_keys($this->manifests);
             }
 
-            public function catalog(): array
+            public function read(string $package, string $path): string
             {
-                return $this->entries;
-            }
-
-            public function read(string $name, ?string $path = null): string
-            {
-                return $name;
+                return $path === 'SKILL.md' ? $this->manifests[$package] : $package;
             }
         };
+        $repository = new SkillRepository($storage);
         $toolkit = new SkillToolkit($repository);
-        $repository->entries = [new SkillCatalogEntry('third', 'Third skill')];
+        $storage->manifests = [
+            'third' => "---\nname: third\ndescription: Third skill\n---\nThird.",
+        ];
 
         $this->assertStringContainsString('first: First skill', $toolkit->guidelines() ?? '');
         $this->assertStringContainsString('second: Second skill', $toolkit->guidelines() ?? '');
@@ -261,7 +272,7 @@ class SkillToolkitTest extends TestCase
         rmdir($this->skillsRoot.'/writing/references');
         unlink($this->skillsRoot.'/writing/SKILL.md');
         rmdir($this->skillsRoot.'/writing');
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
+        $toolkit = new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot)));
 
         $this->assertNull($toolkit->guidelines());
         $this->assertSame([], $toolkit->tools());
