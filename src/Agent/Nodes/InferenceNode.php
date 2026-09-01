@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace NeuronAI\Agent\Nodes;
 
 use NeuronAI\Agent\AgentState;
+use NeuronAI\Agent\Events\AIInferenceEvent;
 use NeuronAI\Chat\Messages\Message;
+use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Exceptions\ChatHistoryException;
 use NeuronAI\Workflow\Node;
 
@@ -41,5 +43,49 @@ abstract class InferenceNode extends Node
         }
 
         return $messages;
+    }
+
+    /**
+     * @param Message[] $messages
+     */
+    protected function effectiveInstructions(
+        AIInferenceEvent $event,
+        AgentState $state,
+        array $messages,
+    ): string {
+        $instructions = $event->instructions;
+
+        foreach ($state->getActiveConversationInstructions() as $key => $active) {
+            if ($this->conversationContainsInstructions($messages, $active)) {
+                continue;
+            }
+
+            $instructions .= "\n\n## Skill: {$key}\n\n{$active['instructions']}";
+        }
+
+        return $instructions;
+    }
+
+    /**
+     * @param Message[] $messages
+     * @param array{tool: string, inputs: array<string, mixed>, instructions: string} $active
+     */
+    protected function conversationContainsInstructions(array $messages, array $active): bool
+    {
+        foreach ($messages as $message) {
+            if (!$message instanceof ToolResultMessage) {
+                continue;
+            }
+
+            foreach ($message->getTools() as $tool) {
+                if ($tool->getName() === $active['tool']
+                    && $tool->getInputs() === $active['inputs']
+                    && $tool->getResult() === $active['instructions']) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

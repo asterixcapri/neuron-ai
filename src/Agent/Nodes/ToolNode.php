@@ -18,6 +18,7 @@ use NeuronAI\Agent\Tools\ToolRejectionHandler;
 use NeuronAI\Observability\Events\ToolCalled;
 use NeuronAI\Observability\Events\ToolCalling;
 use NeuronAI\Tools\HasRunKey;
+use NeuronAI\Tools\ProvidesConversationInstructions;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolInterface;
 use NeuronAI\Workflow\Node;
@@ -56,11 +57,40 @@ class ToolNode extends Node
 
         $toolCallResult = yield from $this->executeTools($event->toolCallMessage, $state);
 
+        $this->recordConversationInstructions($toolCallResult, $state);
+
         // Only carry the tool result message as the next turn in the conversation
         $event->inferenceEvent->setMessages($toolCallResult);
 
         // Go back to the AI provider
         return $event->inferenceEvent;
+    }
+
+    protected function recordConversationInstructions(ToolResultMessage $message, AgentState $state): void
+    {
+        foreach ($message->getTools() as $tool) {
+            if (!$tool instanceof ProvidesConversationInstructions) {
+                continue;
+            }
+
+            $key = $tool->getConversationInstructionKey();
+            $instructions = $tool->getConversationInstructions();
+
+            if ($key === null || $instructions === null) {
+                continue;
+            }
+
+            $activated = $state->activateConversationInstructions(
+                $key,
+                $tool->getName(),
+                $tool->getInputs(),
+                $instructions,
+            );
+
+            if (!$activated) {
+                $tool->markConversationInstructionsAlreadyActive();
+            }
+        }
     }
 
     /**
