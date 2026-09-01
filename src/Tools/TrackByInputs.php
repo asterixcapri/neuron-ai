@@ -28,6 +28,12 @@ trait TrackByInputs
 {
     public function getRunKey(): string
     {
-        return $this->getName() . ':' . hash('sha1', json_encode($this->getInputs()));
+        return $this->buildRunKey($this->getInputs());
+    }
+
+    /** @param array<string, mixed> $inputs */
+    protected function buildRunKey(array $inputs): string
+    {
+        return $this->getName() . ':' . hash('sha1', json_encode($inputs));
     }
 }

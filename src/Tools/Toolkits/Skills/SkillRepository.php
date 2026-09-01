@@ -62,6 +62,9 @@ class SkillRepository
         if (!array_key_exists($name, $this->availableSkills)) {
             return sprintf('Skill "%s" is not available.', $name);
         }
+        if ($path === '') {
+            return $this->resourceStorageError($name, $path, SkillStorageError::INVALID_PATH);
+        }
 
         try {
             return $this->storage->read($name, $path);
