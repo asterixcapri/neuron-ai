@@ -6,15 +6,20 @@ namespace NeuronAI\Tools\Toolkits\AgentSkills;
 
 use NeuronAI\Tools\HasRunKey;
 use NeuronAI\Tools\PropertyType;
+use NeuronAI\Tools\ProvidesConversationInstructions;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\TrackByInputs;
 
 use function in_array;
 
-class SkillLoadTool extends Tool implements HasRunKey
+class SkillLoadTool extends Tool implements HasRunKey, ProvidesConversationInstructions
 {
     use TrackByInputs;
+
+    protected ?string $loadedSkill = null;
+
+    protected ?string $loadedInstructions = null;
 
     /**
      * @param string[] $skillNames
@@ -45,6 +50,24 @@ class SkillLoadTool extends Tool implements HasRunKey
             return "Skill \"{$name}\" is not available.";
         }
 
-        return $this->repository->load($name);
+        $this->loadedSkill = $name;
+        $this->loadedInstructions = $this->repository->load($name);
+
+        return $this->loadedInstructions;
+    }
+
+    public function getConversationInstructionKey(): ?string
+    {
+        return $this->loadedSkill;
+    }
+
+    public function getConversationInstructions(): ?string
+    {
+        return $this->loadedInstructions;
+    }
+
+    public function markConversationInstructionsAlreadyActive(): void
+    {
+        $this->setResult("Skill \"{$this->loadedSkill}\" is already active.");
     }
 }

@@ -42,7 +42,7 @@ class StreamingNode extends InferenceNode
             $this->emit('inference-start', new InferenceStart($lastMessage));
 
             $stream = $this->provider
-                ->systemPrompt($event->instructions)
+                ->systemPrompt($this->effectiveInstructions($event, $state, $messages))
                 ->setTools($event->tools)
                 ->stream(...$messages);
 
