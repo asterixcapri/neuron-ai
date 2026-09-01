@@ -77,5 +77,4 @@ class AgentState extends WorkflowState
     {
         $this->delete('__steps');
     }
-
 }

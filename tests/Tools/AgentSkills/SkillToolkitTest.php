@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace NeuronAI\Tests\Tools\AgentSkills;
 
 use NeuronAI\Agent\Agent;
+use NeuronAI\Agent\Middleware\SkillLifecycle;
 use NeuronAI\Agent\Middleware\Summarization;
 use NeuronAI\Agent\Nodes\InferenceNode;
+use NeuronAI\Agent\Nodes\ToolNode;
 use NeuronAI\Chat\History\InMemoryChatHistory;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
@@ -85,10 +87,10 @@ class SkillToolkitTest extends TestCase
             new AssistantMessage('I will follow the writing skill.'),
         );
 
-        $agent = Agent::make()
-            ->setAiProvider($provider)
-            ->setInstructions('Be helpful.')
-            ->addTool($toolkit);
+        $agent = Agent::make();
+        $agent->setAiProvider($provider);
+        $agent->setInstructions('Be helpful.');
+        $this->addSkillSupport($agent, $toolkit);
 
         $response = $agent->chat(new UserMessage('Help me write.'))->getMessage();
 
@@ -135,10 +137,10 @@ class SkillToolkitTest extends TestCase
             new AssistantMessage('Still loaded.'),
         );
 
-        $agent = Agent::make()
-            ->setAiProvider($provider)
-            ->setInstructions('Be helpful.')
-            ->addTool($toolkit);
+        $agent = Agent::make();
+        $agent->setAiProvider($provider);
+        $agent->setInstructions('Be helpful.');
+        $this->addSkillSupport($agent, $toolkit);
 
         $agent->chat(new UserMessage('Load writing.'))->getMessage();
         $agent->chat(new UserMessage('Load writing again.'))->getMessage();
@@ -166,10 +168,10 @@ class SkillToolkitTest extends TestCase
             new AssistantMessage('Continued.'),
         );
         $history = new InMemoryChatHistory(100);
-        $agent = Agent::make()
-            ->setAiProvider($provider)
-            ->setChatHistory($history)
-            ->addTool($toolkit);
+        $agent = Agent::make();
+        $agent->setAiProvider($provider);
+        $agent->setChatHistory($history);
+        $this->addSkillSupport($agent, $toolkit);
 
         $agent->chat(new UserMessage('Load writing.'))->getMessage();
         $agent->chat(new UserMessage('Create a long answer.'))->getMessage();
@@ -196,8 +198,8 @@ class SkillToolkitTest extends TestCase
         $summarizer = new FakeAIProvider(new AssistantMessage('The writing skill was loaded.'));
         $agent = Agent::make();
         $agent->setAiProvider($provider);
-        $agent->addTool($toolkit);
         $agent->addMiddleware(InferenceNode::class, new Summarization($summarizer, 50, 1));
+        $this->addSkillSupport($agent, $toolkit);
 
         $agent->chat(new UserMessage('Load writing.'))->getMessage();
         $agent->chat(new UserMessage('Continue.'))->getMessage();
@@ -218,18 +220,16 @@ class SkillToolkitTest extends TestCase
             ]),
             new AssistantMessage('Loaded.'),
         );
-        Agent::make()
-            ->setAiProvider($firstProvider)
-            ->addTool($toolkit)
-            ->chat(new UserMessage('Load writing.'))
-            ->getMessage();
+        $firstAgent = Agent::make();
+        $firstAgent->setAiProvider($firstProvider);
+        $this->addSkillSupport($firstAgent, $toolkit);
+        $firstAgent->chat(new UserMessage('Load writing.'))->getMessage();
 
         $secondProvider = new FakeAIProvider(new AssistantMessage('Hello.'));
-        Agent::make()
-            ->setAiProvider($secondProvider)
-            ->addTool($toolkit)
-            ->chat(new UserMessage('Hello.'))
-            ->getMessage();
+        $secondAgent = Agent::make();
+        $secondAgent->setAiProvider($secondProvider);
+        $this->addSkillSupport($secondAgent, $toolkit);
+        $secondAgent->chat(new UserMessage('Hello.'))->getMessage();
 
         $this->assertStringNotContainsString(
             'Prefer direct sentences.',
@@ -249,10 +249,10 @@ class SkillToolkitTest extends TestCase
             new AssistantMessage('Continued.'),
         );
         $history = new InMemoryChatHistory();
-        $agent = Agent::make()
-            ->setAiProvider($provider)
-            ->setChatHistory($history)
-            ->addTool($toolkit);
+        $agent = Agent::make();
+        $agent->setAiProvider($provider);
+        $agent->setChatHistory($history);
+        $this->addSkillSupport($agent, $toolkit);
 
         foreach ($agent->stream(new UserMessage('Load writing.'))->events() as $event) {
         }
@@ -276,10 +276,10 @@ class SkillToolkitTest extends TestCase
             new AssistantMessage('{"name": "Bob"}'),
         );
         $history = new InMemoryChatHistory();
-        $agent = Agent::make()
-            ->setAiProvider($provider)
-            ->setChatHistory($history)
-            ->addTool($toolkit);
+        $agent = Agent::make();
+        $agent->setAiProvider($provider);
+        $agent->setChatHistory($history);
+        $this->addSkillSupport($agent, $toolkit);
 
         $agent->structured(new UserMessage('Load writing and create a user.'), User::class);
         $history->flushAll();
@@ -307,6 +307,15 @@ class SkillToolkitTest extends TestCase
         }
 
         return $count;
+    }
+
+    protected function addSkillSupport(Agent $agent, SkillToolkit $toolkit): void
+    {
+        $middleware = new SkillLifecycle();
+
+        $agent->addTool($toolkit);
+        $agent->addMiddleware(ToolNode::class, $middleware);
+        $agent->addMiddleware(InferenceNode::class, $middleware);
     }
 
     public function test_resource_errors_and_binary_content_are_model_readable_tool_results(): void

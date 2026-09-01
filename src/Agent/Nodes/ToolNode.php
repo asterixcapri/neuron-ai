@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace NeuronAI\Agent\Nodes;
 
 use Generator;
-use NeuronAI\Agent\AgentSkills\ActiveSkills;
 use NeuronAI\Agent\AgentState;
 use NeuronAI\Agent\ChatHistoryHelper;
 use NeuronAI\Agent\Events\AIInferenceEvent;
@@ -21,7 +20,6 @@ use NeuronAI\Observability\Events\ToolCalling;
 use NeuronAI\Tools\HasRunKey;
 use NeuronAI\Tools\Tool;
 use NeuronAI\Tools\ToolInterface;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillLoadTool;
 use NeuronAI\Workflow\Node;
 use Throwable;
 
@@ -58,31 +56,11 @@ class ToolNode extends Node
 
         $toolCallResult = yield from $this->executeTools($event->toolCallMessage, $state);
 
-        $this->recordActiveSkills($toolCallResult, $state);
-
         // Only carry the tool result message as the next turn in the conversation
         $event->inferenceEvent->setMessages($toolCallResult);
 
         // Go back to the AI provider
         return $event->inferenceEvent;
-    }
-
-    protected function recordActiveSkills(ToolResultMessage $message, AgentState $state): void
-    {
-        foreach ($message->getTools() as $tool) {
-            if (!$tool instanceof SkillLoadTool) {
-                continue;
-            }
-
-            $skill = $tool->getActiveSkill();
-            if ($skill === null) {
-                continue;
-            }
-
-            if (!ActiveSkills::activate($state, $skill)) {
-                $tool->markSkillAlreadyActive();
-            }
-        }
     }
 
     /**

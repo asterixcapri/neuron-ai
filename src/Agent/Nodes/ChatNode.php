@@ -39,11 +39,9 @@ class ChatNode extends InferenceNode
         $inbound = $event->getMessages();
         $messages = $this->pendingConversation($state, $inbound);
         $lastMessage = end($messages);
-        $inferenceEvent = clone $event;
-        $inferenceEvent->instructions = $this->effectiveInstructions($event, $state, $messages);
 
         $this->emit('inference-start', new InferenceStart($lastMessage));
-        $response = $this->inference($inferenceEvent, $messages);
+        $response = $this->inference($event, $messages);
         $this->emit('inference-stop', new InferenceStop($lastMessage, $response));
 
         $this->addToChatHistory($state, $inbound);

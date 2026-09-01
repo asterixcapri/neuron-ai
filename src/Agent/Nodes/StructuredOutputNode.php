@@ -92,7 +92,7 @@ class StructuredOutputNode extends InferenceNode
                 $this->emit('inference-start', new InferenceStart($last));
 
                 $response = $this->provider
-                    ->systemPrompt($this->effectiveInstructions($event, $state, $messages))
+                    ->systemPrompt($event->instructions)
                     ->setTools($event->tools)
                     ->structured($messages, $this->outputClass, $schema);
 
