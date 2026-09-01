@@ -104,9 +104,9 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         return $contents;
     }
 
-    protected function readTextError(?bool $contents, string $subject): string
+    protected function readTextError(?bool $readFailure, string $subject): string
     {
-        return $contents === null
+        return $readFailure === null
             ? $subject.' contains unsupported binary content.'
             : $subject.' could not be read.';
     }
@@ -164,7 +164,7 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
             }
 
             $entry = $this->catalogEntry($directoryName, $manifest);
-            if (!$entry instanceof \NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry) {
+            if ($entry === null) {
                 continue;
             }
 
