@@ -138,6 +138,24 @@ class FileSystemSkillRepositoryTest extends TestCase
         $this->assertSame([], (new FileSystemSkillRepository($this->skillsRoot))->catalog());
     }
 
+    public function test_accepts_a_skill_whose_manifest_symlink_stays_inside_its_directory(): void
+    {
+        mkdir($this->skillsRoot.'/linked-manifest', 0o777, true);
+        file_put_contents(
+            $this->skillsRoot.'/linked-manifest/manifest.md',
+            "---\nname: linked-manifest\ndescription: Linked manifest\n---\nBody.",
+        );
+        symlink('manifest.md', $this->skillsRoot.'/linked-manifest/SKILL.md');
+
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertEquals(
+            [new SkillCatalogEntry('linked-manifest', 'Linked manifest')],
+            $repository->catalog(),
+        );
+        $this->assertSame('Body.', $repository->read('linked-manifest'));
+    }
+
     public function test_catalog_is_snapshotted_while_instruction_bodies_are_read_lazily(): void
     {
         $this->writeSkill('writing', "---\nname: writing\ndescription: Original description\n---\nOriginal body.");

@@ -20,6 +20,7 @@ use NeuronAI\Tools\Toolkits\AgentSkills\SkillToolkit;
 use NeuronAI\Tools\Toolkits\AgentSkills\SkillTool;
 use PHPUnit\Framework\TestCase;
 
+use function array_unique;
 use function bin2hex;
 use function file_exists;
 use function file_put_contents;
@@ -200,7 +201,7 @@ class SkillToolkitTest extends TestCase
         $tool->execute();
     }
 
-    public function test_toolkit_snapshots_custom_repository_catalog_and_tracks_names_separately(): void
+    public function test_toolkit_snapshots_custom_repository_catalog_and_tracks_names_and_paths_separately(): void
     {
         $repository = new class () implements SkillRepositoryInterface {
             /** @var SkillCatalogEntry[] */
@@ -208,7 +209,10 @@ class SkillToolkitTest extends TestCase
 
             public function __construct()
             {
-                $this->entries = [new SkillCatalogEntry('first', 'First skill')];
+                $this->entries = [
+                    new SkillCatalogEntry('first', 'First skill'),
+                    new SkillCatalogEntry('second', 'Second skill'),
+                ];
             }
 
             public function catalog(): array
@@ -222,17 +226,22 @@ class SkillToolkitTest extends TestCase
             }
         };
         $toolkit = new SkillToolkit($repository);
-        $repository->entries = [new SkillCatalogEntry('second', 'Second skill')];
+        $repository->entries = [new SkillCatalogEntry('third', 'Third skill')];
 
         $this->assertStringContainsString('first: First skill', $toolkit->guidelines() ?? '');
-        $this->assertStringNotContainsString('second', $toolkit->guidelines() ?? '');
+        $this->assertStringContainsString('second: Second skill', $toolkit->guidelines() ?? '');
+        $this->assertStringNotContainsString('third', $toolkit->guidelines() ?? '');
         $tool = $toolkit->tools()[0];
         $this->assertInstanceOf(SkillTool::class, $tool);
-        $tool->setInputs(['name' => 'first']);
-        $instructionsKey = $tool->getRunKey();
-        $tool->setInputs(['name' => 'first', 'path' => 'references/details.md']);
+        $keys = [];
+        foreach (['first', 'second'] as $name) {
+            foreach (['references/details.md', 'references/examples.md'] as $path) {
+                $tool->setInputs(['name' => $name, 'path' => $path]);
+                $keys[] = $tool->getRunKey();
+            }
+        }
 
-        $this->assertNotSame($instructionsKey, $tool->getRunKey());
+        $this->assertCount(4, array_unique($keys));
     }
 
     public function test_empty_catalog_contributes_neither_guidelines_nor_tools(): void

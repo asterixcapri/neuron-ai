@@ -15,6 +15,7 @@ use function fopen;
 use function is_dir;
 use function is_file;
 use function is_readable;
+use function is_string;
 use function preg_match;
 use function realpath;
 use function rtrim;
@@ -63,11 +64,8 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         }
 
         $contents = $this->readText($manifest);
-        if ($contents === null) {
-            return sprintf('Skill "%s" contains unsupported binary content.', $name);
-        }
-        if ($contents === false) {
-            return sprintf('Skill "%s" could not be read.', $name);
+        if (!is_string($contents)) {
+            return $this->readTextError($contents, sprintf('Skill "%s"', $name));
         }
 
         if (preg_match('/\A---\r?\n.*?\r?\n---(?:\r?\n|\z)(.*)\z/s', $contents, $matches) !== 1) {
@@ -96,14 +94,21 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         }
 
         $contents = $this->readText($resource);
-        if ($contents === null) {
-            return sprintf('Resource "%s" in skill "%s" contains unsupported binary content.', $path, $name);
-        }
-        if ($contents === false) {
-            return sprintf('Resource "%s" in skill "%s" could not be read.', $path, $name);
+        if (!is_string($contents)) {
+            return $this->readTextError(
+                $contents,
+                sprintf('Resource "%s" in skill "%s"', $path, $name),
+            );
         }
 
         return $contents;
+    }
+
+    protected function readTextError(false|null $contents, string $subject): string
+    {
+        return $contents === null
+            ? $subject.' contains unsupported binary content.'
+            : $subject.' could not be read.';
     }
 
     protected function validResourcePath(string $path): bool
