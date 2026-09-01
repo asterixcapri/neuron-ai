@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tests\Tools\AgentSkills;
+namespace NeuronAI\Tests\Tools\Skills;
 
 use FilesystemIterator;
-use NeuronAI\Tools\Toolkits\AgentSkills\FileSystemSkillRepository;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillCatalogEntry;
+use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillRepository;
+use NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;

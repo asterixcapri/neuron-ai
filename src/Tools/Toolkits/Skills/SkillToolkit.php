@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tools\Toolkits\AgentSkills;
+namespace NeuronAI\Tools\Toolkits\Skills;
 
 use NeuronAI\Tools\Toolkits\AbstractToolkit;
 

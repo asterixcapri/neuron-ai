@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tests\Tools\AgentSkills;
+namespace NeuronAI\Tests\Tools\Skills;
 
 use LogicException;
 use NeuronAI\Agent\Agent;
@@ -13,11 +13,11 @@ use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\RequestRecord;
 use NeuronAI\Tools\ToolProperty;
-use NeuronAI\Tools\Toolkits\AgentSkills\FileSystemSkillRepository;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillCatalogEntry;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillRepositoryInterface;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillToolkit;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillTool;
+use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillRepository;
+use NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry;
+use NeuronAI\Tools\Toolkits\Skills\SkillRepositoryInterface;
+use NeuronAI\Tools\Toolkits\Skills\SkillToolkit;
+use NeuronAI\Tools\Toolkits\Skills\SkillTool;
 use PHPUnit\Framework\TestCase;
 
 use function array_unique;
