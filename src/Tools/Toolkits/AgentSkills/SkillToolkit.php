@@ -31,7 +31,8 @@ class SkillToolkit extends AbstractToolkit
         );
 
         return "Available skills:\n".implode("\n", $catalog)
-            ."\nUse the `skill` tool to load a relevant skill's complete instructions before following them.";
+            ."\nUse the `skill` tool to load a relevant skill's complete instructions before following them."
+            ." Supply its optional `path` to read a referenced textual file from that skill.";
     }
 
     public function provide(): array

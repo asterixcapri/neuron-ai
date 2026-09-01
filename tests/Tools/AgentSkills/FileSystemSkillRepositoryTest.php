@@ -10,12 +10,13 @@ use NeuronAI\Tools\Toolkits\AgentSkills\SkillCatalogEntry;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
-use RuntimeException;
 
 use function array_map;
 use function bin2hex;
+use function chmod;
 use function file_put_contents;
 use function is_dir;
+use function is_readable;
 use function mkdir;
 use function random_bytes;
 use function rmdir;
@@ -169,10 +170,133 @@ class FileSystemSkillRepositoryTest extends TestCase
     {
         $repository = new FileSystemSkillRepository($this->skillsRoot);
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Skill "missing" is not available.');
+        $this->assertSame('Skill "missing" is not available.', $repository->read('missing'));
+    }
 
-        $repository->read('missing');
+    public function test_reads_nested_resources_and_reflects_lazy_edits_without_truncation(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        mkdir($this->skillsRoot.'/writing/references/nested', 0o777, true);
+        $path = $this->skillsRoot.'/writing/references/nested/guide.md';
+        file_put_contents($path, 'Original resource.');
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+        $contents = str_repeat('Complete UTF-8 text: café. ', 10000);
+        file_put_contents($path, $contents);
+
+        $this->assertSame($contents, $repository->read('writing', 'references/nested/guide.md'));
+    }
+
+    /** @dataProvider invalidResourcePaths */
+    public function test_rejects_invalid_resource_paths(string $path): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame('Resource path "'.$path.'" is invalid.', $repository->read('writing', $path));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidResourcePaths(): array
+    {
+        return [
+            'empty' => [''],
+            'POSIX absolute' => ['/etc/passwd'],
+            'Windows absolute with backslashes' => ['C:\\Windows\\win.ini'],
+            'Windows absolute with slashes' => ['C:/Windows/win.ini'],
+            'UNC' => ['\\\\server\\share\\file.txt'],
+            'parent traversal' => ['references/../../secret.txt'],
+            'Windows parent traversal' => ['references\\..\\secret.txt'],
+        ];
+    }
+
+    public function test_reports_missing_resources_and_directories(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        mkdir($this->skillsRoot.'/writing/references');
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame(
+            'Resource "missing.md" was not found in skill "writing".',
+            $repository->read('writing', 'missing.md'),
+        );
+        $this->assertSame(
+            'Resource "references" in skill "writing" is not a file.',
+            $repository->read('writing', 'references'),
+        );
+    }
+
+    public function test_allows_confined_resource_symlinks_and_rejects_escaping_ones(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        mkdir($this->skillsRoot.'/writing/references');
+        file_put_contents($this->skillsRoot.'/writing/references/guide.md', 'Confined target.');
+        file_put_contents($this->outsideRoot.'/secret.md', 'External target.');
+        symlink('references/guide.md', $this->skillsRoot.'/writing/guide-link.md');
+        symlink($this->outsideRoot.'/secret.md', $this->skillsRoot.'/writing/secret-link.md');
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame('Confined target.', $repository->read('writing', 'guide-link.md'));
+        $this->assertSame(
+            'Resource "secret-link.md" escapes skill "writing".',
+            $repository->read('writing', 'secret-link.md'),
+        );
+    }
+
+    public function test_reads_scripts_as_text_without_executing_them(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        mkdir($this->skillsRoot.'/writing/scripts');
+        $marker = $this->outsideRoot.'/executed';
+        $script = "#!/bin/sh\ntouch {$marker}\n";
+        file_put_contents($this->skillsRoot.'/writing/scripts/run.sh', $script);
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame($script, $repository->read('writing', 'scripts/run.sh'));
+        $this->assertFileDoesNotExist($marker);
+    }
+
+    public function test_reports_an_unreadable_resource(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        $path = $this->skillsRoot.'/writing/locked.txt';
+        file_put_contents($path, 'Locked content.');
+        chmod($path, 0o000);
+        if (is_readable($path)) {
+            chmod($path, 0o644);
+            $this->markTestSkipped('The current user can read files regardless of their permission bits.');
+        }
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        try {
+            $this->assertSame(
+                'Resource "locked.txt" in skill "writing" could not be read.',
+                $repository->read('writing', 'locked.txt'),
+            );
+        } finally {
+            chmod($path, 0o644);
+        }
+    }
+
+    /** @dataProvider binaryContents */
+    public function test_rejects_binary_resources(string $contents): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Writing\n---\nInstructions.");
+        file_put_contents($this->skillsRoot.'/writing/content.bin', $contents);
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame(
+            'Resource "content.bin" in skill "writing" contains unsupported binary content.',
+            $repository->read('writing', 'content.bin'),
+        );
+    }
+
+    /** @return array<string, array{string}> */
+    public static function binaryContents(): array
+    {
+        return [
+            'null byte' => ["text\0binary"],
+            'invalid UTF-8' => ["invalid \xC3\x28"],
+        ];
     }
 
     protected function writeSkill(string $directory, string $contents): void

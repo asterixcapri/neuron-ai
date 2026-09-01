@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace NeuronAI\Tools\Toolkits\AgentSkills;
 
 use DirectoryIterator;
-use RuntimeException;
 
 use function array_key_exists;
 use function array_keys;
@@ -15,11 +14,13 @@ use function file_get_contents;
 use function fopen;
 use function is_dir;
 use function is_file;
+use function is_readable;
 use function preg_match;
 use function realpath;
 use function rtrim;
 use function sort;
 use function sprintf;
+use function str_contains;
 use function str_starts_with;
 use function strlen;
 use function substr;
@@ -46,24 +47,88 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         return $this->catalog;
     }
 
-    public function read(string $name): string
+    public function read(string $name, ?string $path = null): string
     {
         if (!array_key_exists($name, $this->skillDirectories)) {
-            throw new RuntimeException(sprintf('Skill "%s" is not available.', $name));
+            return sprintf('Skill "%s" is not available.', $name);
+        }
+
+        if ($path !== null) {
+            return $this->readResource($name, $path);
         }
 
         $manifest = $this->manifestPath($this->skillDirectories[$name]);
         if ($manifest === null) {
-            throw new RuntimeException(sprintf('Skill "%s" has an unavailable SKILL.md.', $name));
+            return sprintf('Skill "%s" has an unavailable SKILL.md.', $name);
         }
 
-        $contents = file_get_contents($manifest);
-        if ($contents === false
-            || preg_match('/\A---\r?\n.*?\r?\n---(?:\r?\n|\z)(.*)\z/s', $contents, $matches) !== 1) {
-            throw new RuntimeException(sprintf('Skill "%s" has invalid frontmatter.', $name));
+        $contents = $this->readText($manifest);
+        if ($contents === null) {
+            return sprintf('Skill "%s" contains unsupported binary content.', $name);
+        }
+        if ($contents === false) {
+            return sprintf('Skill "%s" could not be read.', $name);
+        }
+
+        if (preg_match('/\A---\r?\n.*?\r?\n---(?:\r?\n|\z)(.*)\z/s', $contents, $matches) !== 1) {
+            return sprintf('Skill "%s" has invalid frontmatter.', $name);
         }
 
         return trim($matches[1]);
+    }
+
+    protected function readResource(string $name, string $path): string
+    {
+        if (!$this->validResourcePath($path)) {
+            return sprintf('Resource path "%s" is invalid.', $path);
+        }
+
+        $skillDirectory = $this->skillDirectories[$name];
+        $resource = realpath($skillDirectory.'/'.$path);
+        if ($resource === false) {
+            return sprintf('Resource "%s" was not found in skill "%s".', $path, $name);
+        }
+        if ($resource !== $skillDirectory && !$this->isWithin($resource, $skillDirectory)) {
+            return sprintf('Resource "%s" escapes skill "%s".', $path, $name);
+        }
+        if (!is_file($resource)) {
+            return sprintf('Resource "%s" in skill "%s" is not a file.', $path, $name);
+        }
+
+        $contents = $this->readText($resource);
+        if ($contents === null) {
+            return sprintf('Resource "%s" in skill "%s" contains unsupported binary content.', $path, $name);
+        }
+        if ($contents === false) {
+            return sprintf('Resource "%s" in skill "%s" could not be read.', $path, $name);
+        }
+
+        return $contents;
+    }
+
+    protected function validResourcePath(string $path): bool
+    {
+        return $path !== ''
+            && preg_match('/\A(?:[\\\\\/]|[A-Za-z]:[\\\\\/])/', $path) !== 1
+            && preg_match('/(?:\A|[\\\\\/])\.\.(?:[\\\\\/]|\z)/D', $path) !== 1;
+    }
+
+    /** @return string|false|null Null indicates unsupported binary content. */
+    protected function readText(string $path): string|false|null
+    {
+        if (!is_readable($path)) {
+            return false;
+        }
+
+        $contents = file_get_contents($path);
+        if ($contents === false) {
+            return false;
+        }
+        if (str_contains($contents, "\0") || preg_match('//u', $contents) !== 1) {
+            return null;
+        }
+
+        return $contents;
     }
 
     protected function discover(): void
