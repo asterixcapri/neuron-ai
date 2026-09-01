@@ -19,6 +19,7 @@ use function is_dir;
 use function is_file;
 use function is_string;
 use function in_array;
+use function mb_strlen;
 use function preg_match;
 use function preg_split;
 use function realpath;
@@ -49,21 +50,39 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
     public function catalog(): array
     {
+        $this->bootstrap();
+        return $this->catalog ?? [];
+    }
+
+    protected function bootstrap(): void
+    {
         if ($this->catalog !== null) {
-            return $this->catalog;
+            return;
         }
 
         $this->catalog = [];
 
         if (!is_dir($this->skillsRoot)) {
             $this->diagnostics[] = sprintf('Skills root "%s" is not a directory.', $this->skillsRoot);
-            return $this->catalog;
+            return;
+        }
+
+        $skillsRoot = realpath($this->skillsRoot);
+        if ($skillsRoot === false) {
+            $this->diagnostics[] = sprintf('Skills root "%s" could not be resolved.', $this->skillsRoot);
+            return;
         }
 
         $directories = [];
         foreach (new DirectoryIterator($this->skillsRoot) as $entry) {
             if (!$entry->isDot() && $entry->isDir() && is_file($entry->getPathname().'/SKILL.md')) {
-                $directories[$entry->getFilename()] = $entry->getPathname();
+                $directory = realpath($entry->getPathname());
+                if ($directory === false || !$this->isWithin($directory, $skillsRoot)) {
+                    $this->diagnostics[] = sprintf('%s: Skill directory is outside the configured skills root.', $entry->getFilename());
+                    continue;
+                }
+
+                $directories[$entry->getFilename()] = $directory;
             }
         }
         $names = array_keys($directories);
@@ -71,7 +90,7 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
         foreach ($names as $directoryName) {
             try {
-                $metadata = $this->parseMetadata($directoryName, $directories[$directoryName].'/SKILL.md');
+                $metadata = $this->parseMetadata($directoryName, $this->manifestPath($directories[$directoryName]));
                 $this->catalog[] = $metadata;
                 $this->skillDirectories[$metadata->name] = $directories[$directoryName];
             } catch (RuntimeException $exception) {
@@ -79,17 +98,11 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
             }
         }
 
-        return $this->catalog;
     }
 
     public function load(string $name): string
     {
-        $this->catalog();
-        if (!array_key_exists($name, $this->skillDirectories)) {
-            throw new RuntimeException(sprintf('Skill "%s" is not available.', $name));
-        }
-
-        $contents = file_get_contents($this->skillDirectories[$name].'/SKILL.md');
+        $contents = file_get_contents($this->manifestPath($this->skillDirectory($name)));
         if ($contents === false || preg_match('/\A---\R.*?\R---(?:\R|$)(.*)\z/s', $contents, $matches) !== 1) {
             throw new RuntimeException(sprintf('Skill "%s" has invalid frontmatter.', $name));
         }
@@ -99,10 +112,7 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
     public function loadResource(string $name, string $path): string
     {
-        $this->catalog();
-        if (!array_key_exists($name, $this->skillDirectories)) {
-            throw new RuntimeException(sprintf('Skill "%s" is not available.', $name));
-        }
+        $skillDirectory = $this->skillDirectory($name);
         if ($path === '') {
             throw new RuntimeException('Resource path cannot be empty.');
         }
@@ -115,12 +125,11 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
             throw new RuntimeException(sprintf('Resource path "%s" cannot contain ".." segments.', $path));
         }
 
-        $skillDirectory = realpath($this->skillDirectories[$name]);
-        $resource = realpath($this->skillDirectories[$name].'/'.str_replace('\\', '/', $path));
-        if ($skillDirectory === false || $resource === false || !is_file($resource)) {
+        $resource = realpath($skillDirectory.'/'.str_replace('\\', '/', $path));
+        if ($resource === false || !is_file($resource)) {
             throw new RuntimeException(sprintf('Resource "%s" was not found in skill "%s".', $path, $name));
         }
-        if (!str_starts_with($resource, $skillDirectory.DIRECTORY_SEPARATOR)) {
+        if (!$this->isWithin($resource, $skillDirectory)) {
             throw new RuntimeException(sprintf('Resource "%s" is outside skill "%s".', $path, $name));
         }
 
@@ -137,8 +146,36 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
     public function diagnostics(): array
     {
-        $this->catalog();
+        $this->bootstrap();
         return $this->diagnostics;
+    }
+
+    protected function skillDirectory(string $name): string
+    {
+        $this->bootstrap();
+        if (!array_key_exists($name, $this->skillDirectories)) {
+            throw new RuntimeException(sprintf('Skill "%s" is not available.', $name));
+        }
+
+        return $this->skillDirectories[$name];
+    }
+
+    protected function manifestPath(string $skillDirectory): string
+    {
+        $manifest = realpath($skillDirectory.'/SKILL.md');
+        if ($manifest === false || !is_file($manifest)) {
+            throw new RuntimeException('SKILL.md could not be resolved.');
+        }
+        if (!$this->isWithin($manifest, $skillDirectory)) {
+            throw new RuntimeException('SKILL.md is outside its skill directory.');
+        }
+
+        return $manifest;
+    }
+
+    protected function isWithin(string $path, string $directory): bool
+    {
+        return str_starts_with($path, rtrim($directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR);
     }
 
     protected function parseMetadata(string $directoryName, string $path): SkillMetadata
@@ -150,22 +187,27 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
         $name = $frontmatter['name'] ?? null;
         $description = $frontmatter['description'] ?? null;
-        if (!is_string($name) || trim($name) === '') {
-            throw new RuntimeException('Required metadata "name" must be a non-empty string.');
+        if (!is_string($name) || preg_match('/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/D', $name) !== 1 || mb_strlen($name) > 64) {
+            throw new RuntimeException('Required metadata "name" must be 1-64 characters using lowercase letters, numbers, and single hyphens only.');
         }
         if ($name !== $directoryName) {
             throw new RuntimeException(sprintf('Skill name "%s" must match its directory "%s".', $name, $directoryName));
         }
-        if (!is_string($description) || trim($description) === '') {
-            throw new RuntimeException('Required metadata "description" must be a non-empty string.');
+        if (!is_string($description) || trim($description) === '' || mb_strlen($description) > 1024) {
+            throw new RuntimeException('Required metadata "description" must be a string between 1 and 1024 characters.');
+        }
+
+        $compatibility = $this->optionalString($frontmatter, 'compatibility');
+        if ($compatibility !== null && (trim($compatibility) === '' || mb_strlen($compatibility) > 500)) {
+            throw new RuntimeException('Optional metadata "compatibility" must be between 1 and 500 characters.');
         }
 
         return new SkillMetadata(
             name: $name,
             description: $description,
             license: $this->optionalString($frontmatter, 'license'),
-            compatibility: $this->optionalString($frontmatter, 'compatibility'),
-            metadata: $this->optionalMapping($frontmatter, 'metadata'),
+            compatibility: $compatibility,
+            metadata: $this->optionalStringMapping($frontmatter, 'metadata'),
             allowedTools: $this->optionalString($frontmatter, 'allowed-tools'),
         );
     }
@@ -214,9 +256,9 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
 
     /**
      * @param array<string, mixed> $frontmatter
-     * @return array<string, mixed>
+     * @return array<string, string>
      */
-    protected function optionalMapping(array $frontmatter, string $key): array
+    protected function optionalStringMapping(array $frontmatter, string $key): array
     {
         if (!array_key_exists($key, $frontmatter)) {
             return [];
@@ -225,6 +267,15 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
             throw new RuntimeException(sprintf('Optional metadata "%s" must be a mapping.', $key));
         }
 
-        return $frontmatter[$key];
+        $mapping = [];
+        foreach ($frontmatter[$key] as $metadataKey => $metadataValue) {
+            if (!is_string($metadataKey) || !is_string($metadataValue)) {
+                throw new RuntimeException(sprintf('Optional metadata "%s" must map strings to strings.', $key));
+            }
+
+            $mapping[$metadataKey] = $metadataValue;
+        }
+
+        return $mapping;
     }
 }

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace NeuronAI\Agent\Nodes;
 
+use NeuronAI\Agent\AgentSkills\ActiveSkills;
 use NeuronAI\Agent\AgentState;
 use NeuronAI\Agent\Events\AIInferenceEvent;
 use NeuronAI\Chat\Messages\Message;
 use NeuronAI\Chat\Messages\ToolResultMessage;
 use NeuronAI\Exceptions\ChatHistoryException;
+use NeuronAI\Tools\Toolkits\AgentSkills\ActiveSkill;
 use NeuronAI\Workflow\Node;
 
 /**
@@ -55,12 +57,12 @@ abstract class InferenceNode extends Node
     ): string {
         $instructions = $event->instructions;
 
-        foreach ($state->getActiveConversationInstructions() as $key => $active) {
-            if ($this->conversationContainsInstructions($messages, $active)) {
+        foreach (ActiveSkills::all($state) as $skill) {
+            if ($this->conversationContainsSkill($messages, $skill)) {
                 continue;
             }
 
-            $instructions .= "\n\n## Skill: {$key}\n\n{$active['instructions']}";
+            $instructions .= "\n\n## Skill: {$skill->name}\n\n{$skill->instructions}";
         }
 
         return $instructions;
@@ -68,9 +70,8 @@ abstract class InferenceNode extends Node
 
     /**
      * @param Message[] $messages
-     * @param array{tool: string, inputs: array<string, mixed>, instructions: string} $active
      */
-    protected function conversationContainsInstructions(array $messages, array $active): bool
+    protected function conversationContainsSkill(array $messages, ActiveSkill $skill): bool
     {
         foreach ($messages as $message) {
             if (!$message instanceof ToolResultMessage) {
@@ -78,9 +79,9 @@ abstract class InferenceNode extends Node
             }
 
             foreach ($message->getTools() as $tool) {
-                if ($tool->getName() === $active['tool']
-                    && $tool->getInputs() === $active['inputs']
-                    && $tool->getResult() === $active['instructions']) {
+                if ($tool->getName() === $skill->tool
+                    && $tool->getInputs() === $skill->inputs
+                    && $tool->getResult() === $skill->instructions) {
                     return true;
                 }
             }

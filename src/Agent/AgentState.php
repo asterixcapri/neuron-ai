@@ -78,36 +78,4 @@ class AgentState extends WorkflowState
         $this->delete('__steps');
     }
 
-    /**
-     * @param array<string, mixed> $inputs
-     */
-    public function activateConversationInstructions(
-        string $key,
-        string $tool,
-        array $inputs,
-        string $instructions,
-    ): bool {
-        $active = $this->get('__conversation_instructions', []);
-
-        if (isset($active[$key])) {
-            return false;
-        }
-
-        $active[$key] = [
-            'tool' => $tool,
-            'inputs' => $inputs,
-            'instructions' => $instructions,
-        ];
-        $this->set('__conversation_instructions', $active);
-
-        return true;
-    }
-
-    /**
-     * @return array<string, array{tool: string, inputs: array<string, mixed>, instructions: string}>
-     */
-    public function getActiveConversationInstructions(): array
-    {
-        return $this->get('__conversation_instructions', []);
-    }
 }

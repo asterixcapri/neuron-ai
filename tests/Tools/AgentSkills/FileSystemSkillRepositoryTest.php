@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NeuronAI\Tests\Tools\AgentSkills;
 
 use NeuronAI\Tools\Toolkits\AgentSkills\FileSystemSkillRepository;
+use NeuronAI\Tools\Toolkits\AgentSkills\SkillMetadata;
 use PHPUnit\Framework\TestCase;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
@@ -19,6 +20,7 @@ use function implode;
 use function mkdir;
 use function random_bytes;
 use function rmdir;
+use function str_repeat;
 use function symlink;
 use function str_replace;
 use function sys_get_temp_dir;
@@ -75,16 +77,18 @@ class FileSystemSkillRepositoryTest extends TestCase
         $repository = new FileSystemSkillRepository($this->skillsRoot);
         $catalog = $repository->catalog();
 
-        $this->assertSame(['analysis', 'writing'], array_map(fn ($skill): string => $skill->name, $catalog));
+        $this->assertSame(['analysis', 'writing'], array_map(fn (SkillMetadata $skill): string => $skill->name, $catalog));
         $this->assertSame('Write clear, concise prose: including YAML punctuation.', $catalog[1]->description);
         $this->assertSame('MIT', $catalog[1]->license);
         $this->assertSame('Requires PHP 8.1+', $catalog[1]->compatibility);
         $this->assertSame(['author' => 'Neuron'], $catalog[1]->metadata);
         $this->assertSame('search read', $catalog[1]->allowedTools);
 
+        $skillContents = file_get_contents($this->skillsRoot.'/writing/SKILL.md');
+        $this->assertIsString($skillContents);
         file_put_contents(
             $this->skillsRoot.'/writing/SKILL.md',
-            str_replace('Prefer short sentences.', 'Prefer direct sentences.', file_get_contents($this->skillsRoot.'/writing/SKILL.md')),
+            str_replace('Prefer short sentences.', 'Prefer direct sentences.', $skillContents),
         );
 
         $this->assertSame("# Writing\n\nPrefer direct sentences.", $repository->load('writing'));
@@ -99,11 +103,48 @@ class FileSystemSkillRepositoryTest extends TestCase
 
         $repository = new FileSystemSkillRepository($this->skillsRoot);
 
-        $this->assertSame(['valid'], array_map(fn ($skill): string => $skill->name, $repository->catalog()));
+        $this->assertSame(['valid'], array_map(fn (SkillMetadata $skill): string => $skill->name, $repository->catalog()));
         $this->assertCount(3, $repository->diagnostics());
         $this->assertStringContainsString('missing-description', implode("\n", $repository->diagnostics()));
         $this->assertStringContainsString('wrong-directory', implode("\n", $repository->diagnostics()));
         $this->assertStringContainsString('malformed', implode("\n", $repository->diagnostics()));
+    }
+
+    /**
+     * @dataProvider invalidMetadata
+     */
+    public function test_excludes_metadata_that_violates_the_agent_skills_spec(
+        string $directory,
+        string $frontmatter,
+        string $message,
+    ): void {
+        $this->writeSkill($directory, "---\n{$frontmatter}\n---\nInstructions");
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame([], $repository->catalog());
+        $this->assertStringContainsString($message, implode("\n", $repository->diagnostics()));
+    }
+
+    /**
+     * @return array<string, array{string, string, string}>
+     */
+    public static function invalidMetadata(): array
+    {
+        return [
+            'uppercase name' => ['Bad-name', "name: Bad-name\ndescription: Invalid", 'name" must be 1-64'],
+            'leading hyphen' => ['-bad-name', "name: -bad-name\ndescription: Invalid", 'name" must be 1-64'],
+            'trailing hyphen' => ['bad-name-', "name: bad-name-\ndescription: Invalid", 'name" must be 1-64'],
+            'consecutive hyphens' => ['bad--name', "name: bad--name\ndescription: Invalid", 'name" must be 1-64'],
+            'long name' => [str_repeat('a', 65), 'name: '.str_repeat('a', 65)."\ndescription: Invalid", 'name" must be 1-64'],
+            'empty description' => ['empty-description', "name: empty-description\ndescription: ''", 'description" must be a string between 1 and 1024'],
+            'long description' => ['long-description', "name: long-description\ndescription: '".str_repeat('a', 1025)."'", 'description" must be a string between 1 and 1024'],
+            'empty compatibility' => ['empty-compatibility', "name: empty-compatibility\ndescription: Invalid\ncompatibility: ''", 'compatibility" must be between 1 and 500'],
+            'long compatibility' => ['long-compatibility', "name: long-compatibility\ndescription: Invalid\ncompatibility: '".str_repeat('a', 501)."'", 'compatibility" must be between 1 and 500'],
+            'metadata value is not a string' => ['number-metadata', "name: number-metadata\ndescription: Invalid\nmetadata:\n  version: 1", 'metadata" must map strings to strings'],
+            'metadata key is not a string' => ['number-key', "name: number-key\ndescription: Invalid\nmetadata:\n  1: value", 'metadata" must map strings to strings'],
+            'license is not a string' => ['list-license', "name: list-license\ndescription: Invalid\nlicense: [MIT]", 'license" must be a string'],
+            'allowed-tools is not a string' => ['list-tools', "name: list-tools\ndescription: Invalid\nallowed-tools: [read]", 'allowed-tools" must be a string'],
+        ];
     }
 
     public function test_loads_nested_resources_and_reads_scripts_without_executing_them(): void
@@ -176,6 +217,48 @@ class FileSystemSkillRepositoryTest extends TestCase
         $this->expectExceptionMessage('Resource "outside-link.md" is outside skill "writing".');
 
         $repository->loadResource('writing', 'outside-link.md');
+    }
+
+    public function test_excludes_skill_directories_and_manifests_that_resolve_outside_their_boundaries(): void
+    {
+        mkdir($this->outsideRoot.'/external-skill', 0o777, true);
+        file_put_contents(
+            $this->outsideRoot.'/external-skill/SKILL.md',
+            "---\nname: external-skill\ndescription: External\n---\nInstructions",
+        );
+        symlink($this->outsideRoot.'/external-skill', $this->skillsRoot.'/external-skill');
+
+        mkdir($this->skillsRoot.'/linked-manifest', 0o777, true);
+        file_put_contents(
+            $this->outsideRoot.'/SKILL.md',
+            "---\nname: linked-manifest\ndescription: External manifest\n---\nInstructions",
+        );
+        symlink($this->outsideRoot.'/SKILL.md', $this->skillsRoot.'/linked-manifest/SKILL.md');
+
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+
+        $this->assertSame([], $repository->catalog());
+        $diagnostics = implode("\n", $repository->diagnostics());
+        $this->assertStringContainsString('external-skill: Skill directory is outside', $diagnostics);
+        $this->assertStringContainsString('linked-manifest: SKILL.md is outside', $diagnostics);
+    }
+
+    public function test_load_rejects_a_manifest_replaced_by_an_external_symlink_after_discovery(): void
+    {
+        $this->writeSkill('writing', "---\nname: writing\ndescription: Write prose\n---\nInstructions");
+        $repository = new FileSystemSkillRepository($this->skillsRoot);
+        $this->assertCount(1, $repository->catalog());
+
+        file_put_contents(
+            $this->outsideRoot.'/replacement.md',
+            "---\nname: writing\ndescription: Replaced\n---\nExternal instructions",
+        );
+        unlink($this->skillsRoot.'/writing/SKILL.md');
+        symlink($this->outsideRoot.'/replacement.md', $this->skillsRoot.'/writing/SKILL.md');
+
+        $this->expectExceptionMessage('SKILL.md is outside its skill directory.');
+
+        $repository->load('writing');
     }
 
     public function test_rejects_binary_resources_without_returning_their_bytes(): void
