@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tools\Toolkits\Skills;
+namespace NeuronAI\Tools\Toolkits\Skills\Storage;
 
 use DirectoryIterator;
 use NeuronAI\Exceptions\ToolException;

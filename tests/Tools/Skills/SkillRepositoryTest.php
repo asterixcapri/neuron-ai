@@ -7,7 +7,7 @@ namespace NeuronAI\Tests\Tools\Skills;
 use LogicException;
 use NeuronAI\Exceptions\ToolException;
 use NeuronAI\Tools\Toolkits\Skills\SkillRepository;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageInterface;
+use NeuronAI\Tools\Toolkits\Skills\Storage\SkillStorageInterface;
 use PHPUnit\Framework\TestCase;
 
 use function array_key_exists;

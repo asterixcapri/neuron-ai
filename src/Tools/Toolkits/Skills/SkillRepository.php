@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NeuronAI\Tools\Toolkits\Skills;
 
 use NeuronAI\Exceptions\ToolException;
+use NeuronAI\Tools\Toolkits\Skills\Storage\SkillStorageInterface;
 
 use function array_key_exists;
 use function preg_match;

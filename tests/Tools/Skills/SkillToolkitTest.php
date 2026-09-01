@@ -13,12 +13,12 @@ use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\RequestRecord;
 use NeuronAI\Tools\ToolProperty;
-use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillStorage;
 use NeuronAI\Tools\Toolkits\Skills\SkillRepository;
 use NeuronAI\Tools\Toolkits\Skills\SkillResourceTool;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageInterface;
 use NeuronAI\Tools\Toolkits\Skills\SkillToolkit;
 use NeuronAI\Tools\Toolkits\Skills\SkillTool;
+use NeuronAI\Tools\Toolkits\Skills\Storage\FileSystemSkillStorage;
+use NeuronAI\Tools\Toolkits\Skills\Storage\SkillStorageInterface;
 use PHPUnit\Framework\TestCase;
 
 use function array_keys;

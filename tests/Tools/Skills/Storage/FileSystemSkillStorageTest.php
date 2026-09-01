@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tests\Tools\Skills;
+namespace NeuronAI\Tests\Tools\Skills\Storage;
 
 use FilesystemIterator;
 use NeuronAI\Exceptions\ToolException;
-use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillStorage;
+use NeuronAI\Tools\Toolkits\Skills\Storage\FileSystemSkillStorage;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
