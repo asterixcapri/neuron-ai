@@ -28,6 +28,10 @@ composer analyse       # Static analysis (PHPStan level 5)
 
 Individual tests: `vendor/bin/phpunit tests/AgentTest.php` or `--filter testMethodName`
 
+## Git attribution
+
+Write commit messages and pull request descriptions as ordinary project contributions. Do not add AI or coding-agent attribution, `Co-authored-by` trailers, or generated-by notices.
+
 ## Architecture
 
 **Layered Foundation**:
@@ -136,3 +140,17 @@ For multi-step tasks, state a brief plan:
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are stored as local Markdown under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The repository uses the default Matt Pocock triage vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
