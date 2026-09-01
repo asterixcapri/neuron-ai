@@ -60,11 +60,12 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 40. As a framework maintainer, I want tests focused on the Agent/toolkit and repository contracts, so that private parsing and caching details can change safely.
 41. As an Agent user, I want the toolkit guidelines to explain that skill instructions may reference package files, so that the model continues progressive disclosure correctly.
 42. As an Agent user, I want referenced files loaded through the same `skill` tool and loaded script contents handed to an appropriate execution tool when one is available, so that reading remains confined while optional execution uses application-provided capabilities.
+43. As a framework maintainer, I want the toolkit directory and namespace named `Skills`, so that the public API uses the concise domain name rather than the redundant `AgentSkills` name.
 
 ## Implementation Decisions
 
 - The feature targets Neuron AI 3 and uses the existing toolkit, tool, and Agent bootstrap contracts.
-- All feature types live together under the Skills toolkit namespace, following the existing convention of keeping toolkit-specific helpers beside their toolkit.
+- All feature types live together under `src/Tools/Toolkits/Skills` and the `NeuronAI\Tools\Toolkits\Skills` namespace, following the existing convention of keeping toolkit-specific helpers beside their toolkit.
 - The initial public surface contains five types: a catalog-entry value object, a repository interface, a filesystem repository, a toolkit, and one tool.
 - The catalog-entry value object is named `SkillCatalogEntry` and contains only `name` and `description`.
 - The repository interface exposes a catalog and one textual read operation. The read operation accepts a skill name and an optional logical path. An omitted path means the main instruction body; a supplied path means a supporting resource.
