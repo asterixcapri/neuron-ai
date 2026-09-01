@@ -7,7 +7,7 @@ namespace NeuronAI\Tools\Toolkits\AgentSkills;
 class SkillMetadata
 {
     /**
-     * @param array<string, mixed> $metadata
+     * @param array<string, string> $metadata
      */
     public function __construct(
         public readonly string $name,
