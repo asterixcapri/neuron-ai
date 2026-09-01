@@ -58,6 +58,8 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 38. As a framework maintainer, I want skill calls tracked by their inputs, so that requests for different skills or paths do not share one run key.
 39. As a framework maintainer, I want the feature to work through the existing Agent tool loop, so that chat, streaming, and structured-output modes need no special branches.
 40. As a framework maintainer, I want tests focused on the Agent/toolkit and repository contracts, so that private parsing and caching details can change safely.
+41. As an Agent user, I want the toolkit guidelines to explain that skill instructions may reference package files, so that the model continues progressive disclosure correctly.
+42. As an Agent user, I want referenced files loaded through the same `skill` tool and scripts handed to an appropriate execution tool, so that reading remains confined while execution uses application-provided capabilities.
 
 ## Implementation Decisions
 
@@ -72,6 +74,8 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 - The model-facing tool is named `skill`, and its implementation type is named `SkillTool`.
 - The tool accepts required `name` and optional `path` inputs. The name schema is constrained to the catalog snapshot when at least one valid skill exists.
 - The toolkit places the catalog and concise loading instructions in its existing toolkit guidelines. The catalog contains only name and description; complete bodies and resources are never included there.
+- The toolkit guidelines state that skill instructions may reference other package files, that referenced files must be loaded by calling `skill` with `path`, and that a referenced file under `scripts/` must then be executed with an appropriate application-provided execution tool.
+- The `skill` tool remains text-only and never executes scripts itself.
 - When no valid skills exist, the toolkit returns no guidelines and provides no tools.
 - Calling `skill` without `path` returns only the trimmed Markdown body after the frontmatter closing delimiter.
 - Calling `skill` with `path` returns the complete textual contents of that logical resource.
@@ -109,6 +113,7 @@ The initial filesystem repository receives one explicit root, snapshots a determ
 - Agent/toolkit tests verify that the catalog contains only deterministic name-description entries, that full bodies are absent from initial instructions, and that the sole model-facing operation is named `skill`.
 - Agent/toolkit tests verify calls with only `name`, calls with `name` and `path`, body-only instruction results, raw textual resource results, expected error text, and input-sensitive run tracking.
 - Agent/toolkit tests cover the empty-catalog case and confirm that neither guidelines nor the tool are registered.
+- Agent/toolkit tests verify the resource-loading and script-execution guidance without registering or invoking a real execution tool.
 - Repository tests cover a valid direct child, ignored non-skill files, ignored nested skills, deterministic alphabetical ordering, and a nonexistent or empty root.
 - Frontmatter tests cover exact first-column matching, splitting at the first colon, descriptions containing additional colons, missing delimiters, missing or empty required fields, invalid names, overlong values, directory-name mismatch, indented lookalike keys, ignored optional metadata, and silent exclusion.
 - Snapshot tests prove that adding or removing a skill after discovery does not change the catalog, while modifying an already discovered instruction body or resource before a later read changes the returned text.
