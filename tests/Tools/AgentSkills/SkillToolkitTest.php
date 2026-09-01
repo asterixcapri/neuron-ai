@@ -4,38 +4,31 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tests\Tools\AgentSkills;
 
+use LogicException;
 use NeuronAI\Agent\Agent;
-use NeuronAI\Agent\Middleware\SkillLifecycle;
-use NeuronAI\Agent\Middleware\Summarization;
-use NeuronAI\Agent\Nodes\InferenceNode;
-use NeuronAI\Agent\Nodes\ToolNode;
-use NeuronAI\Chat\History\InMemoryChatHistory;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Chat\Messages\ToolCallMessage;
 use NeuronAI\Chat\Messages\ToolResultMessage;
-use NeuronAI\Chat\Messages\Usage;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Testing\FakeAIProvider;
 use NeuronAI\Testing\RequestRecord;
-use NeuronAI\Tests\Stubs\StructuredOutput\User;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillLoadResourceTool;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillLoadTool;
+use NeuronAI\Tools\ToolProperty;
 use NeuronAI\Tools\Toolkits\AgentSkills\FileSystemSkillRepository;
-use NeuronAI\Tools\Toolkits\AgentSkills\SkillMetadata;
+use NeuronAI\Tools\Toolkits\AgentSkills\SkillCatalogEntry;
 use NeuronAI\Tools\Toolkits\AgentSkills\SkillRepositoryInterface;
 use NeuronAI\Tools\Toolkits\AgentSkills\SkillToolkit;
+use NeuronAI\Tools\Toolkits\AgentSkills\SkillTool;
 use PHPUnit\Framework\TestCase;
 
 use function bin2hex;
 use function file_exists;
 use function file_put_contents;
-use function in_array;
 use function mkdir;
 use function random_bytes;
 use function rmdir;
-use function substr_count;
 use function sys_get_temp_dir;
 use function unlink;
+use function is_dir;
 
 class SkillToolkitTest extends TestCase
 {
@@ -54,66 +47,57 @@ class SkillToolkitTest extends TestCase
 
             Prefer direct sentences.
             SKILL);
-        mkdir($this->skillsRoot.'/writing/references', 0o777, true);
-        file_put_contents($this->skillsRoot.'/writing/references/style.md', 'Use the active voice.');
     }
 
     protected function tearDown(): void
     {
-        if (file_exists($this->skillsRoot.'/writing/image.bin')) {
-            unlink($this->skillsRoot.'/writing/image.bin');
+        if (file_exists($this->skillsRoot.'/writing/SKILL.md')) {
+            unlink($this->skillsRoot.'/writing/SKILL.md');
         }
-        unlink($this->skillsRoot.'/writing/references/style.md');
-        rmdir($this->skillsRoot.'/writing/references');
-        unlink($this->skillsRoot.'/writing/SKILL.md');
-        rmdir($this->skillsRoot.'/writing');
+        if (is_dir($this->skillsRoot.'/writing')) {
+            rmdir($this->skillsRoot.'/writing');
+        }
         rmdir($this->skillsRoot);
     }
 
-    public function test_agent_discloses_catalog_and_loads_skill_through_tool_loop(): void
+    public function test_agent_discloses_catalog_and_loads_instructions_through_the_tool_loop(): void
     {
         $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        [$skillLoad, $resourceLoad] = $toolkit->tools();
+        $tools = $toolkit->tools();
+        $this->assertCount(1, $tools);
+        $skillTool = $tools[0];
+        $this->assertInstanceOf(SkillTool::class, $skillTool);
+        $this->assertSame(['name'], $skillTool->getRequiredProperties());
+        $nameProperty = $skillTool->getProperties()[0];
+        $this->assertInstanceOf(ToolProperty::class, $nameProperty);
+        $this->assertSame(['writing'], $nameProperty->getEnum());
+
         $provider = new FakeAIProvider(
             new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            new ToolCallMessage(null, [
-                (clone $resourceLoad)->setCallId('call_2')->setInputs([
-                    'name' => 'writing',
-                    'path' => 'references/style.md',
-                ]),
+                (clone $skillTool)->setCallId('call_1')->setInputs(['name' => 'writing']),
             ]),
             new AssistantMessage('I will follow the writing skill.'),
         );
-
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->setInstructions('Be helpful.');
-        $this->addSkillSupport($agent, $toolkit);
+        $agent = Agent::make()
+            ->setAiProvider($provider)
+            ->setInstructions('Be helpful.')
+            ->addTool($toolkit);
 
         $response = $agent->chat(new UserMessage('Help me write.'))->getMessage();
 
         $this->assertSame('I will follow the writing skill.', $response->getContent());
-        $provider->assertToolsConfigured(['skill_load', 'skill_load_resource']);
+        $provider->assertToolsConfigured(['skill']);
         $systemPrompt = $provider->getRecorded()[0]->systemPrompt ?? '';
         $this->assertStringContainsString('writing: Write clear prose', $systemPrompt);
+        $this->assertStringContainsString('skill', $systemPrompt);
         $this->assertStringNotContainsString('Prefer direct sentences.', $systemPrompt);
-        $provider->assertSent(function (RequestRecord $record): bool {
-            $results = [];
-            foreach ($record->messages as $message) {
-                if ($message instanceof ToolResultMessage
-                    && $message->getTools() !== []) {
-                    $results[] = $message->getTools()[0]->getResult();
-                }
-            }
-
-            return in_array("# Writing instructions\n\nPrefer direct sentences.", $results, true)
-                && in_array('Use the active voice.', $results, true);
-        });
+        $provider->assertSent(fn (RequestRecord $record): bool => $this->hasToolResult(
+            $record,
+            "# Writing instructions\n\nPrefer direct sentences.",
+        ));
     }
 
-    public function test_unknown_skill_returns_a_model_readable_result(): void
+    public function test_unknown_skill_is_a_model_readable_result(): void
     {
         $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[0];
         $tool->setInputs(['name' => 'unknown']);
@@ -122,291 +106,123 @@ class SkillToolkitTest extends TestCase
         $this->assertSame('Skill "unknown" is not available.', $tool->getResult());
     }
 
-    public function test_loaded_skill_is_active_without_duplicate_instructions(): void
+    public function test_tool_delegates_reads_to_a_storage_neutral_repository(): void
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $provider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            new AssistantMessage('Loaded.'),
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_2')->setInputs(['name' => 'writing']),
-            ]),
-            new AssistantMessage('Still loaded.'),
-        );
+        $repository = new class () implements SkillRepositoryInterface {
+            public ?string $requestedName = null;
 
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->setInstructions('Be helpful.');
-        $this->addSkillSupport($agent, $toolkit);
+            public function catalog(): array
+            {
+                return [new SkillCatalogEntry('remote', 'Remote skill')];
+            }
 
-        $agent->chat(new UserMessage('Load writing.'))->getMessage();
-        $agent->chat(new UserMessage('Load writing again.'))->getMessage();
+            public function read(string $name): string
+            {
+                $this->requestedName = $name;
 
-        $lastRequest = $provider->getRecorded()[3];
-        $this->assertSame(0, substr_count($lastRequest->systemPrompt ?? '', 'Prefer direct sentences.'));
-        $this->assertSame(1, $this->countToolResults($lastRequest, "# Writing instructions\n\nPrefer direct sentences."));
-        $this->assertSame(1, $this->countToolResults($lastRequest, 'Skill "writing" is already active.'));
+                return 'Remote instructions.';
+            }
+        };
+        $tool = (new SkillToolkit($repository))->tools()[0];
+        $tool->setInputs(['name' => 'remote']);
+        $tool->execute();
+
+        $this->assertSame('Remote instructions.', $tool->getResult());
+        $this->assertSame('remote', $repository->requestedName);
     }
 
-    public function test_loaded_skill_is_reinjected_after_history_trimming(): void
+    public function test_unexpected_repository_failures_remain_exceptions(): void
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $loaded = new AssistantMessage('Loaded.');
-        $loaded->setUsage(new Usage(20, 10));
-        $largeResponse = new AssistantMessage('A large response.');
-        $largeResponse->setUsage(new Usage(200, 10));
-        $provider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            $loaded,
-            $largeResponse,
-            new AssistantMessage('Continued.'),
-        );
-        $history = new InMemoryChatHistory(100);
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->setChatHistory($history);
-        $this->addSkillSupport($agent, $toolkit);
+        $repository = new class () implements SkillRepositoryInterface {
+            public function catalog(): array
+            {
+                return [new SkillCatalogEntry('broken', 'Broken skill')];
+            }
 
-        $agent->chat(new UserMessage('Load writing.'))->getMessage();
-        $agent->chat(new UserMessage('Create a long answer.'))->getMessage();
-        $agent->chat(new UserMessage('Continue.'))->getMessage();
+            public function read(string $name): string
+            {
+                throw new LogicException('Storage failed unexpectedly.');
+            }
+        };
+        $tool = (new SkillToolkit($repository))->tools()[0];
+        $tool->setInputs(['name' => 'broken']);
 
-        $lastRequest = $provider->getRecorded()[3];
-        $this->assertSame(1, substr_count($lastRequest->systemPrompt ?? '', 'Prefer direct sentences.'));
-        $this->assertSame(0, $this->countToolResults($lastRequest, "# Writing instructions\n\nPrefer direct sentences."));
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Storage failed unexpectedly.');
+
+        $tool->execute();
     }
 
-    public function test_loaded_skill_is_reinjected_after_summarization(): void
+    public function test_toolkit_snapshots_custom_repository_catalog_and_tracks_names_separately(): void
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $loaded = new AssistantMessage('Loaded.');
-        $loaded->setUsage(new Usage(80, 20));
-        $provider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            $loaded,
-            new AssistantMessage('Continued.'),
-        );
-        $summarizer = new FakeAIProvider(new AssistantMessage('The writing skill was loaded.'));
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->addMiddleware(InferenceNode::class, new Summarization($summarizer, 50, 1));
-        $this->addSkillSupport($agent, $toolkit);
+        $repository = new class () implements SkillRepositoryInterface {
+            /** @var SkillCatalogEntry[] */
+            public array $entries;
 
-        $agent->chat(new UserMessage('Load writing.'))->getMessage();
-        $agent->chat(new UserMessage('Continue.'))->getMessage();
+            public function __construct()
+            {
+                $this->entries = [new SkillCatalogEntry('first', 'First skill')];
+            }
 
-        $lastRequest = $provider->getRecorded()[2];
-        $this->assertSame(1, substr_count($lastRequest->systemPrompt ?? '', 'Prefer direct sentences.'));
-        $this->assertSame(0, $this->countToolResults($lastRequest, "# Writing instructions\n\nPrefer direct sentences."));
-        $summarizer->assertCallCount(1);
+            public function catalog(): array
+            {
+                return $this->entries;
+            }
+
+            public function read(string $name): string
+            {
+                return $name;
+            }
+        };
+        $toolkit = new SkillToolkit($repository);
+        $repository->entries = [new SkillCatalogEntry('second', 'Second skill')];
+
+        $this->assertStringContainsString('first: First skill', $toolkit->guidelines() ?? '');
+        $this->assertStringNotContainsString('second', $toolkit->guidelines() ?? '');
+        $tool = $toolkit->tools()[0];
+        $this->assertInstanceOf(SkillTool::class, $tool);
+        $tool->setInputs(['name' => 'first']);
+        $firstKey = $tool->getRunKey();
+        $tool->setInputs(['name' => 'second']);
+
+        $this->assertNotSame($firstKey, $tool->getRunKey());
     }
 
-    public function test_active_skills_do_not_leak_between_agents(): void
+    public function test_empty_catalog_contributes_neither_guidelines_nor_tools(): void
     {
+        unlink($this->skillsRoot.'/writing/SKILL.md');
+        rmdir($this->skillsRoot.'/writing');
         $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $firstProvider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            new AssistantMessage('Loaded.'),
-        );
-        $firstAgent = Agent::make();
-        $firstAgent->setAiProvider($firstProvider);
-        $this->addSkillSupport($firstAgent, $toolkit);
-        $firstAgent->chat(new UserMessage('Load writing.'))->getMessage();
 
-        $secondProvider = new FakeAIProvider(new AssistantMessage('Hello.'));
-        $secondAgent = Agent::make();
-        $secondAgent->setAiProvider($secondProvider);
-        $this->addSkillSupport($secondAgent, $toolkit);
-        $secondAgent->chat(new UserMessage('Hello.'))->getMessage();
+        $this->assertNull($toolkit->guidelines());
+        $this->assertSame([], $toolkit->tools());
 
-        $this->assertStringNotContainsString(
-            'Prefer direct sentences.',
-            $secondProvider->getRecorded()[0]->systemPrompt ?? '',
-        );
+        $provider = new FakeAIProvider(new AssistantMessage('Hello.'));
+        Agent::make()
+            ->setAiProvider($provider)
+            ->setInstructions('Be helpful.')
+            ->addTool($toolkit)
+            ->chat(new UserMessage('Hello.'))
+            ->getMessage();
+
+        $this->assertSame([], $provider->getRecorded()[0]->tools);
+        $this->assertStringNotContainsString('SkillToolkit', $provider->getRecorded()[0]->systemPrompt ?? '');
     }
 
-    public function test_loaded_skill_is_preserved_in_streaming_mode(): void
+    protected function hasToolResult(RequestRecord $record, string $expected): bool
     {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $provider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            new AssistantMessage('Loaded.'),
-            new AssistantMessage('Continued.'),
-        );
-        $history = new InMemoryChatHistory();
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->setChatHistory($history);
-        $this->addSkillSupport($agent, $toolkit);
-
-        foreach ($agent->stream(new UserMessage('Load writing.'))->events() as $event) {
-        }
-        $history->flushAll();
-        foreach ($agent->stream(new UserMessage('Continue.'))->events() as $event) {
-        }
-
-        $this->assertSame('stream', $provider->getRecorded()[2]->method);
-        $this->assertSame(1, substr_count($provider->getRecorded()[2]->systemPrompt ?? '', 'Prefer direct sentences.'));
-    }
-
-    public function test_loaded_skill_is_preserved_in_structured_output_mode(): void
-    {
-        $toolkit = new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot));
-        $skillLoad = $toolkit->tools()[0];
-        $provider = new FakeAIProvider(
-            new ToolCallMessage(null, [
-                (clone $skillLoad)->setCallId('call_1')->setInputs(['name' => 'writing']),
-            ]),
-            new AssistantMessage('{"name": "Alice"}'),
-            new AssistantMessage('{"name": "Bob"}'),
-        );
-        $history = new InMemoryChatHistory();
-        $agent = Agent::make();
-        $agent->setAiProvider($provider);
-        $agent->setChatHistory($history);
-        $this->addSkillSupport($agent, $toolkit);
-
-        $agent->structured(new UserMessage('Load writing and create a user.'), User::class);
-        $history->flushAll();
-        $result = $agent->structured(new UserMessage('Create another user.'), User::class);
-
-        $this->assertSame('Bob', $result->name);
-        $this->assertSame('structured', $provider->getRecorded()[2]->method);
-        $this->assertSame(1, substr_count($provider->getRecorded()[2]->systemPrompt ?? '', 'Prefer direct sentences.'));
-    }
-
-    protected function countToolResults(RequestRecord $record, string $result): int
-    {
-        $count = 0;
-
         foreach ($record->messages as $message) {
             if (!$message instanceof ToolResultMessage) {
                 continue;
             }
 
             foreach ($message->getTools() as $tool) {
-                if ($tool->getResult() === $result) {
-                    $count++;
+                if ($tool->getResult() === $expected) {
+                    return true;
                 }
             }
         }
 
-        return $count;
-    }
-
-    protected function addSkillSupport(Agent $agent, SkillToolkit $toolkit): void
-    {
-        $middleware = new SkillLifecycle();
-
-        $agent->addTool($toolkit);
-        $agent->addMiddleware(ToolNode::class, $middleware);
-        $agent->addMiddleware(InferenceNode::class, $middleware);
-    }
-
-    public function test_resource_errors_and_binary_content_are_model_readable_tool_results(): void
-    {
-        file_put_contents($this->skillsRoot.'/writing/image.bin', "raw\0secret");
-        $tool = (new SkillToolkit(new FileSystemSkillRepository($this->skillsRoot)))->tools()[1];
-
-        $tool->setInputs(['name' => 'writing', 'path' => '../outside.txt']);
-        $tool->execute();
-        $this->assertSame(
-            'Resource path "../outside.txt" cannot contain ".." segments.',
-            $tool->getResult(),
-        );
-
-        $tool->setInputs(['name' => 'unknown', 'path' => 'file.txt']);
-        $tool->execute();
-        $this->assertSame('Skill "unknown" is not available.', $tool->getResult());
-
-        $tool->setInputs(['name' => 'writing', 'path' => 'image.bin']);
-        $tool->execute();
-        $this->assertSame(
-            'Resource "image.bin" in skill "writing" contains unsupported binary content.',
-            $tool->getResult(),
-        );
-        $this->assertStringNotContainsString('secret', $tool->getResult());
-
-        unlink($this->skillsRoot.'/writing/image.bin');
-    }
-
-    public function test_resource_tool_delegates_to_the_repository_contract(): void
-    {
-        $repository = new class () implements SkillRepositoryInterface {
-            /** @var array{name: string, path: string}|null */
-            public ?array $requestedResource = null;
-
-            public function catalog(): array
-            {
-                return [new SkillMetadata('remote', 'Remote skill')];
-            }
-
-            public function load(string $name): string
-            {
-                return 'Instructions';
-            }
-
-            public function loadResource(string $name, string $path): string
-            {
-                $this->requestedResource = ['name' => $name, 'path' => $path];
-
-                return 'Repository content';
-            }
-
-            public function diagnostics(): array
-            {
-                return [];
-            }
-        };
-        $tool = (new SkillToolkit($repository))->tools()[1];
-
-        $tool->setInputs(['name' => 'remote', 'path' => 'any/category/file.txt']);
-        $tool->execute();
-
-        $this->assertSame('Repository content', $tool->getResult());
-        $this->assertSame(
-            ['name' => 'remote', 'path' => 'any/category/file.txt'],
-            $repository->requestedResource,
-        );
-    }
-
-    public function test_skill_tools_track_distinct_inputs_with_distinct_run_keys(): void
-    {
-        [$skillLoad, $resourceLoad] = (new SkillToolkit(
-            new FileSystemSkillRepository($this->skillsRoot),
-        ))->tools();
-        $this->assertInstanceOf(SkillLoadTool::class, $skillLoad);
-        $this->assertInstanceOf(SkillLoadResourceTool::class, $resourceLoad);
-
-        $skillLoad->setInputs(['name' => 'writing']);
-        $writingSkillKey = $skillLoad->getRunKey();
-        $skillLoad->setInputs(['name' => 'another']);
-        $anotherSkillKey = $skillLoad->getRunKey();
-
-        $resourceLoad->setInputs(['name' => 'writing', 'path' => 'references/style.md']);
-        $styleResourceKey = $resourceLoad->getRunKey();
-        $resourceLoad->setInputs(['name' => 'writing', 'path' => 'scripts/prepare.php']);
-        $scriptResourceKey = $resourceLoad->getRunKey();
-        $resourceLoad->setInputs(['name' => 'another', 'path' => 'references/style.md']);
-        $otherSkillResourceKey = $resourceLoad->getRunKey();
-
-        $this->assertNotSame($writingSkillKey, $anotherSkillKey);
-        $this->assertNotSame($styleResourceKey, $scriptResourceKey);
-        $this->assertNotSame($styleResourceKey, $otherSkillResourceKey);
+        return false;
     }
 }

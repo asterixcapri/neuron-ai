@@ -11,34 +11,40 @@ use function implode;
 
 class SkillToolkit extends AbstractToolkit
 {
+    /** @var SkillCatalogEntry[] */
+    protected array $catalog;
+
     public function __construct(protected SkillRepositoryInterface $repository)
     {
+        $this->catalog = $repository->catalog();
     }
 
     public function guidelines(): ?string
     {
-        $catalog = array_map(
-            fn (SkillMetadata $skill): string => "- {$skill->name}: {$skill->description}",
-            $this->repository->catalog(),
-        );
-
-        if ($catalog === []) {
-            return 'No skills are currently available.';
+        if ($this->catalog === []) {
+            return null;
         }
 
-        return "Available skills:\n".implode("\n", $catalog)."\nLoad a relevant skill before following its instructions.";
+        $catalog = array_map(
+            fn (SkillCatalogEntry $skill): string => "- {$skill->name}: {$skill->description}",
+            $this->catalog,
+        );
+
+        return "Available skills:\n".implode("\n", $catalog)
+            ."\nUse the `skill` tool to load a relevant skill's complete instructions before following them.";
     }
 
     public function provide(): array
     {
+        if ($this->catalog === []) {
+            return [];
+        }
+
         $names = array_map(
-            fn (SkillMetadata $skill): string => $skill->name,
-            $this->repository->catalog(),
+            fn (SkillCatalogEntry $skill): string => $skill->name,
+            $this->catalog,
         );
 
-        return [
-            new SkillLoadTool($this->repository, $names),
-            new SkillLoadResourceTool($this->repository, $names),
-        ];
+        return [new SkillTool($this->repository, $names)];
     }
 }
