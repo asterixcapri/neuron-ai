@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace NeuronAI\Tools\Toolkits\AgentSkills;
+namespace NeuronAI\Tools\Toolkits\Skills;
 
 use DirectoryIterator;
 
@@ -164,7 +164,7 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
             }
 
             $entry = $this->catalogEntry($directoryName, $manifest);
-            if ($entry === null) {
+            if (!$entry instanceof \NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry) {
                 continue;
             }
 
