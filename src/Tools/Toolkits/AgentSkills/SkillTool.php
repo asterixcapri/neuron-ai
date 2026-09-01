@@ -12,11 +12,9 @@ use NeuronAI\Tools\TrackByInputs;
 
 use function in_array;
 
-class SkillLoadTool extends Tool implements HasRunKey
+class SkillTool extends Tool implements HasRunKey
 {
     use TrackByInputs;
-
-    protected ?ActiveSkill $activeSkill = null;
 
     /**
      * @param string[] $skillNames
@@ -25,7 +23,7 @@ class SkillLoadTool extends Tool implements HasRunKey
         protected SkillRepositoryInterface $repository,
         protected array $skillNames,
     ) {
-        parent::__construct('skill_load', 'Load the complete instructions for an available skill.');
+        parent::__construct('skill', 'Load the complete instructions for an available skill.');
     }
 
     protected function properties(): array
@@ -47,24 +45,6 @@ class SkillLoadTool extends Tool implements HasRunKey
             return "Skill \"{$name}\" is not available.";
         }
 
-        $instructions = $this->repository->load($name);
-        $this->activeSkill = new ActiveSkill(
-            name: $name,
-            tool: $this->getName(),
-            inputs: $this->getInputs(),
-            instructions: $instructions,
-        );
-
-        return $instructions;
-    }
-
-    public function getActiveSkill(): ?ActiveSkill
-    {
-        return $this->activeSkill;
-    }
-
-    public function markSkillAlreadyActive(): void
-    {
-        $this->setResult("Skill \"{$this->activeSkill?->name}\" is already active.");
+        return $this->repository->read($name);
     }
 }

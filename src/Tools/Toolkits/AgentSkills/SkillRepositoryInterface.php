@@ -6,17 +6,8 @@ namespace NeuronAI\Tools\Toolkits\AgentSkills;
 
 interface SkillRepositoryInterface
 {
-    /**
-     * @return SkillMetadata[]
-     */
+    /** @return SkillCatalogEntry[] */
     public function catalog(): array;
 
-    public function load(string $name): string;
-
-    public function loadResource(string $name, string $path): string;
-
-    /**
-     * @return string[]
-     */
-    public function diagnostics(): array;
+    public function read(string $name): string;
 }
