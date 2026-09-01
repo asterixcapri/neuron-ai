@@ -4,7 +4,7 @@
 
 **Blocked by:** 03: Guide referenced files and scripts.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] All five public feature types live under `src/Tools/Toolkits/Skills`.
 - [ ] All five public feature types use the `NeuronAI\Tools\Toolkits\Skills` namespace.
