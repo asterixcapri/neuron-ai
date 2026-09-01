@@ -86,6 +86,19 @@ class SkillRepositoryTest extends TestCase
         $this->assertSame('Skill "added" is not available.', $repository->readInstructions('added'));
     }
 
+    public function test_rejects_an_empty_resource_path_before_calling_storage(): void
+    {
+        $storage = new InMemorySkillStorage([
+            'writing' => [
+                'SKILL.md' => "---\nname: writing\ndescription: Writing\n---\nInstructions.",
+                '' => 'Instructions exposed as a resource.',
+            ],
+        ]);
+        $repository = new SkillRepository($storage);
+
+        $this->assertSame('Resource path "" is invalid.', $repository->readResource('writing', ''));
+    }
+
     public function test_translates_expected_storage_failures_to_stable_domain_errors(): void
     {
         $storage = new InMemorySkillStorage([

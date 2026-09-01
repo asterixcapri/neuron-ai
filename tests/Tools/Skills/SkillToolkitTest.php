@@ -169,6 +169,60 @@ class SkillToolkitTest extends TestCase
         ));
     }
 
+    public function test_agent_tracks_distinct_skill_and_resource_reads_separately(): void
+    {
+        $storage = new class () implements SkillStorageInterface {
+            public function packages(): array
+            {
+                return ['analysis', 'writing'];
+            }
+
+            public function read(string $package, string $path): string
+            {
+                if ($path === 'SKILL.md') {
+                    return "---\nname: {$package}\ndescription: {$package} skill\n---\n{$package} instructions.";
+                }
+
+                return "{$package}:{$path}";
+            }
+        };
+        $toolkit = new SkillToolkit(new SkillRepository($storage));
+        [$skillTool, $resourceTool] = $toolkit->tools();
+        $provider = new FakeAIProvider(
+            new ToolCallMessage(null, [
+                (clone $skillTool)->setCallId('call_1')->setInputs(['name' => 'analysis']),
+            ]),
+            new ToolCallMessage(null, [
+                (clone $skillTool)->setCallId('call_2')->setInputs(['name' => 'writing']),
+            ]),
+            new ToolCallMessage(null, [
+                (clone $resourceTool)->setCallId('call_3')->setInputs([
+                    'name' => 'writing',
+                    'path' => 'references/style.md',
+                ]),
+            ]),
+            new ToolCallMessage(null, [
+                (clone $resourceTool)->setCallId('call_4')->setInputs([
+                    'name' => 'writing',
+                    'path' => 'references/examples.md',
+                ]),
+            ]),
+            new AssistantMessage('All distinct reads completed.'),
+        );
+
+        $agent = Agent::make();
+        $agent
+            ->setAiProvider($provider)
+            ->setInstructions('Be helpful.')
+            ->addTool($toolkit);
+        $agent->toolMaxRuns(1);
+
+        $response = $agent->chat(new UserMessage('Load both skills and resources.'))->getMessage();
+
+        $this->assertSame('All distinct reads completed.', $response->getContent());
+        $provider->assertCallCount(5);
+    }
+
     public function test_unknown_skill_is_a_model_readable_result(): void
     {
         $tool = (new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot))))->tools()[0];
@@ -369,6 +423,31 @@ class SkillToolkitTest extends TestCase
         $this->assertCount(2, array_unique($skillKeys));
         $this->assertNotSame($firstResourceKey, $secondResourceKey);
         $this->assertNotContains($firstResourceKey, $skillKeys);
+    }
+
+    public function test_run_keys_ignore_inputs_outside_each_tools_natural_inputs(): void
+    {
+        [$skillTool, $resourceTool] = (new SkillToolkit(
+            new SkillRepository(new FileSystemSkillStorage($this->skillsRoot)),
+        ))->tools();
+        $this->assertInstanceOf(SkillTool::class, $skillTool);
+        $this->assertInstanceOf(SkillResourceTool::class, $resourceTool);
+
+        $skillTool->setInputs(['name' => 'writing']);
+        $skillKey = $skillTool->getRunKey();
+        $skillTool->setInputs(['name' => 'writing', 'path' => 'references/style.md']);
+
+        $this->assertSame($skillKey, $skillTool->getRunKey());
+
+        $resourceTool->setInputs(['name' => 'writing', 'path' => 'references/style.md']);
+        $resourceKey = $resourceTool->getRunKey();
+        $resourceTool->setInputs([
+            'name' => 'writing',
+            'path' => 'references/style.md',
+            'offset' => 10,
+        ]);
+
+        $this->assertSame($resourceKey, $resourceTool->getRunKey());
     }
 
     public function test_empty_catalog_contributes_neither_guidelines_nor_tools(): void

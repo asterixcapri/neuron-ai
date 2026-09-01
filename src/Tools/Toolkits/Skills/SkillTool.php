@@ -47,4 +47,9 @@ class SkillTool extends Tool implements HasRunKey
 
         return $this->repository->readInstructions($name);
     }
+
+    public function getRunKey(): string
+    {
+        return $this->buildRunKey(['name' => $this->getInput('name')]);
+    }
 }
