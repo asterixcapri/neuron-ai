@@ -18,11 +18,19 @@ use function is_array;
 use function is_dir;
 use function is_file;
 use function is_string;
+use function in_array;
 use function preg_match;
+use function preg_split;
+use function realpath;
+use function str_contains;
+use function str_replace;
+use function str_starts_with;
 use function rtrim;
 use function sort;
 use function sprintf;
 use function trim;
+
+use const DIRECTORY_SEPARATOR;
 
 class FileSystemSkillRepository implements SkillRepositoryInterface
 {
@@ -87,6 +95,44 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         }
 
         return trim($matches[1]);
+    }
+
+    public function loadResource(string $name, string $path): string
+    {
+        $this->catalog();
+        if (!array_key_exists($name, $this->skillDirectories)) {
+            throw new RuntimeException(sprintf('Skill "%s" is not available.', $name));
+        }
+        if ($path === '') {
+            throw new RuntimeException('Resource path cannot be empty.');
+        }
+        if (preg_match('/^(?:[\\\\\/]|[A-Za-z]:[\\\\\/])/', $path) === 1) {
+            throw new RuntimeException(sprintf('Resource path "%s" must be relative.', $path));
+        }
+
+        $segments = preg_split('/[\\\\\/]/', $path);
+        if ($segments !== false && in_array('..', $segments, true)) {
+            throw new RuntimeException(sprintf('Resource path "%s" cannot contain ".." segments.', $path));
+        }
+
+        $skillDirectory = realpath($this->skillDirectories[$name]);
+        $resource = realpath($this->skillDirectories[$name].'/'.str_replace('\\', '/', $path));
+        if ($skillDirectory === false || $resource === false || !is_file($resource)) {
+            throw new RuntimeException(sprintf('Resource "%s" was not found in skill "%s".', $path, $name));
+        }
+        if (!str_starts_with($resource, $skillDirectory.DIRECTORY_SEPARATOR)) {
+            throw new RuntimeException(sprintf('Resource "%s" is outside skill "%s".', $path, $name));
+        }
+
+        $contents = file_get_contents($resource);
+        if ($contents === false) {
+            throw new RuntimeException(sprintf('Resource "%s" in skill "%s" could not be read.', $path, $name));
+        }
+        if (str_contains($contents, "\0") || preg_match('//u', $contents) !== 1) {
+            throw new RuntimeException(sprintf('Resource "%s" in skill "%s" contains unsupported binary content.', $path, $name));
+        }
+
+        return $contents;
     }
 
     public function diagnostics(): array

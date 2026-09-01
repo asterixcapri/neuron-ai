@@ -13,6 +13,8 @@ interface SkillRepositoryInterface
 
     public function load(string $name): string;
 
+    public function loadResource(string $name, string $path): string;
+
     /**
      * @return string[]
      */

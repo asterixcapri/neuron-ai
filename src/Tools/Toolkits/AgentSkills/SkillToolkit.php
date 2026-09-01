@@ -36,6 +36,9 @@ class SkillToolkit extends AbstractToolkit
             $this->repository->catalog(),
         );
 
-        return [new SkillLoadTool($this->repository, $names)];
+        return [
+            new SkillLoadTool($this->repository, $names),
+            new SkillLoadResourceTool($this->repository, $names),
+        ];
     }
 }
