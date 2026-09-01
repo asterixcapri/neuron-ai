@@ -104,7 +104,7 @@ class FileSystemSkillRepository implements SkillRepositoryInterface
         return $contents;
     }
 
-    protected function readTextError(false|null $contents, string $subject): string
+    protected function readTextError(?bool $contents, string $subject): string
     {
         return $contents === null
             ? $subject.' contains unsupported binary content.'
