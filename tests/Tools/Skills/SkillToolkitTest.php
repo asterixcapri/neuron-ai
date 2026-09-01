@@ -241,13 +241,13 @@ class SkillToolkitTest extends TestCase
         $this->assertSame('Skill "unknown" is not available.', $tool->getResult());
     }
 
-    public function test_invalid_resource_path_is_a_model_readable_result(): void
+    public function test_null_byte_resource_path_is_a_model_readable_result(): void
     {
         $tool = (new SkillToolkit(new SkillRepository(new FileSystemSkillStorage($this->skillsRoot))))->tools()[1];
-        $tool->setInputs(['name' => 'writing', 'path' => '../secret.md']);
+        $tool->setInputs(['name' => 'writing', 'path' => "resource\0.md"]);
         $tool->execute();
 
-        $this->assertSame('Resource path "../secret.md" is invalid.', $tool->getResult());
+        $this->assertSame("Resource path \"resource\0.md\" is invalid.", $tool->getResult());
     }
 
     public function test_empty_resource_path_is_invalid_and_cannot_load_instructions(): void

@@ -139,13 +139,19 @@ class FileSystemSkillStorageTest extends TestCase
     {
         return [
             'empty' => [''],
-            'POSIX absolute' => ['/etc/passwd'],
-            'Windows absolute with backslashes' => ['C:\\Windows\\win.ini'],
-            'Windows absolute with slashes' => ['C:/Windows/win.ini'],
-            'UNC' => ['\\\\server\\share\\file.txt'],
-            'parent traversal' => ['references/../../secret.txt'],
-            'Windows parent traversal' => ['references\\..\\secret.txt'],
+            'null byte' => ["resource\0.md"],
         ];
+    }
+
+    public function test_rejects_parent_traversal_that_escapes_the_package(): void
+    {
+        mkdir($this->skillsRoot.'/writing');
+        file_put_contents($this->skillsRoot.'/secret.md', 'External target.');
+
+        $this->assertStorageError(
+            'Resource "../secret.md" escapes skill "writing".',
+            fn (): string => (new FileSystemSkillStorage($this->skillsRoot))->read('writing', '../secret.md'),
+        );
     }
 
     public function test_reports_unknown_packages_missing_files_and_directories(): void

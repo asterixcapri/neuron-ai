@@ -77,9 +77,7 @@ class FileSystemSkillStorage implements SkillStorageInterface
 
     protected function validPath(string $path): bool
     {
-        return $path !== ''
-            && preg_match('/\A(?:[\\\\\/]|[A-Za-z]:[\\\\\/])/', $path) !== 1
-            && preg_match('/(?:\A|[\\\\\/])\.\.(?:[\\\\\/]|\z)/D', $path) !== 1;
+        return $path !== '' && !str_contains($path, "\0");
     }
 
     protected function discoverPackages(): void
