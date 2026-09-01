@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace NeuronAI\Tests\Tools\Skills;
 
 use LogicException;
-use NeuronAI\Tools\Toolkits\Skills\SkillCatalogEntry;
+use NeuronAI\Exceptions\ToolException;
 use NeuronAI\Tools\Toolkits\Skills\SkillRepository;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageError;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageException;
 use NeuronAI\Tools\Toolkits\Skills\SkillStorageInterface;
 use PHPUnit\Framework\TestCase;
 
@@ -30,9 +28,9 @@ class SkillRepositoryTest extends TestCase
         ]);
         $repository = new SkillRepository($storage);
 
-        $this->assertEquals([
-            new SkillCatalogEntry('analysis', 'Analyse evidence'),
-            new SkillCatalogEntry('writing', 'Write clearly: for humans'),
+        $this->assertSame([
+            ['name' => 'analysis', 'description' => 'Analyse evidence'],
+            ['name' => 'writing', 'description' => 'Write clearly: for humans'],
         ], $repository->catalog());
         $this->assertSame('Write directly.', $repository->readInstructions('writing'));
     }
@@ -80,7 +78,9 @@ class SkillRepositoryTest extends TestCase
         $storage->files['writing']['guide.md'] = 'Changed guide.';
         $storage->files['added']['SKILL.md'] = "---\nname: added\ndescription: Added later\n---\nAdded.";
 
-        $this->assertEquals([new SkillCatalogEntry('writing', 'Original description')], $repository->catalog());
+        $this->assertSame([
+            ['name' => 'writing', 'description' => 'Original description'],
+        ], $repository->catalog());
         $this->assertSame('Changed body.', $repository->readInstructions('writing'));
         $this->assertSame('Changed guide.', $repository->readResource('writing', 'guide.md'));
         $this->assertSame('Skill "added" is not available.', $repository->readInstructions('added'));
@@ -99,44 +99,45 @@ class SkillRepositoryTest extends TestCase
         $this->assertSame('Resource path "" is invalid.', $repository->readResource('writing', ''));
     }
 
-    public function test_translates_expected_storage_failures_to_stable_domain_errors(): void
+    public function test_returns_expected_storage_failure_messages(): void
     {
         $storage = new InMemorySkillStorage([
             'writing' => ['SKILL.md' => "---\nname: writing\ndescription: Writing\n---\nInstructions."],
         ]);
         $repository = new SkillRepository($storage);
 
-        $storage->failures['writing']['missing.md'] = SkillStorageError::FILE_NOT_FOUND;
+        $storage->failures['writing']['missing.md'] = 'Resource "missing.md" was not found in skill "writing".';
         $this->assertSame(
             'Resource "missing.md" was not found in skill "writing".',
             $repository->readResource('writing', 'missing.md'),
         );
-        $storage->failures['writing']['../secret.md'] = SkillStorageError::INVALID_PATH;
+        $storage->failures['writing']['../secret.md'] = 'Resource path "../secret.md" is invalid.';
         $this->assertSame(
             'Resource path "../secret.md" is invalid.',
             $repository->readResource('writing', '../secret.md'),
         );
-        $storage->failures['writing']['binary.bin'] = SkillStorageError::BINARY_CONTENT;
+        $storage->failures['writing']['binary.bin'] =
+            'Resource "binary.bin" in skill "writing" contains unsupported binary content.';
         $this->assertSame(
             'Resource "binary.bin" in skill "writing" contains unsupported binary content.',
             $repository->readResource('writing', 'binary.bin'),
         );
-        $storage->failures['writing']['escaped.md'] = SkillStorageError::ESCAPES_PACKAGE;
+        $storage->failures['writing']['escaped.md'] = 'Resource "escaped.md" escapes skill "writing".';
         $this->assertSame(
             'Resource "escaped.md" escapes skill "writing".',
             $repository->readResource('writing', 'escaped.md'),
         );
-        $storage->failures['writing']['references'] = SkillStorageError::NOT_A_FILE;
+        $storage->failures['writing']['references'] = 'Resource "references" in skill "writing" is not a file.';
         $this->assertSame(
             'Resource "references" in skill "writing" is not a file.',
             $repository->readResource('writing', 'references'),
         );
-        $storage->failures['writing']['locked.md'] = SkillStorageError::UNREADABLE;
+        $storage->failures['writing']['locked.md'] = 'Resource "locked.md" in skill "writing" could not be read.';
         $this->assertSame(
             'Resource "locked.md" in skill "writing" could not be read.',
             $repository->readResource('writing', 'locked.md'),
         );
-        $storage->failures['writing']['SKILL.md'] = SkillStorageError::UNREADABLE;
+        $storage->failures['writing']['SKILL.md'] = 'Skill "writing" could not be read.';
         $this->assertSame('Skill "writing" could not be read.', $repository->readInstructions('writing'));
     }
 
@@ -145,7 +146,7 @@ class SkillRepositoryTest extends TestCase
         $storage = new InMemorySkillStorage([
             'writing' => ['SKILL.md' => "---\nname: writing\ndescription: Writing\n---\nInstructions."],
         ]);
-        $storage->failures['writing']['SKILL.md'] = SkillStorageError::ESCAPES_PACKAGE;
+        $storage->failures['writing']['SKILL.md'] = 'Skill "writing" has an unavailable SKILL.md.';
 
         $this->assertSame([], (new SkillRepository($storage))->catalog());
     }
@@ -178,7 +179,7 @@ class InMemorySkillStorage implements SkillStorageInterface
     {
     }
 
-    /** @var array<string, array<string, SkillStorageError>> */
+    /** @var array<string, array<string, string>> */
     public array $failures = [];
 
     public function packages(): array
@@ -189,13 +190,13 @@ class InMemorySkillStorage implements SkillStorageInterface
     public function read(string $package, string $path): string
     {
         if (isset($this->failures[$package][$path])) {
-            throw new SkillStorageException($this->failures[$package][$path]);
+            throw new ToolException($this->failures[$package][$path]);
         }
         if (!array_key_exists($package, $this->files)) {
-            throw new SkillStorageException(SkillStorageError::PACKAGE_NOT_FOUND);
+            throw new ToolException("Skill \"{$package}\" is not available.");
         }
         if (!array_key_exists($path, $this->files[$package])) {
-            throw new SkillStorageException(SkillStorageError::FILE_NOT_FOUND);
+            throw new ToolException("Resource \"{$path}\" was not found in skill \"{$package}\".");
         }
 
         return $this->files[$package][$path];

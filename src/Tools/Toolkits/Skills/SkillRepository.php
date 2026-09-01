@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Skills;
 
+use NeuronAI\Exceptions\ToolException;
+
 use function array_key_exists;
 use function preg_match;
 use function preg_split;
@@ -20,7 +22,7 @@ class SkillRepository
 {
     protected const MANIFEST = 'SKILL.md';
 
-    /** @var SkillCatalogEntry[] */
+    /** @var array<int, array{name: string, description: string}> */
     protected array $catalog = [];
 
     /** @var array<string, true> */
@@ -31,7 +33,7 @@ class SkillRepository
         $this->buildCatalog();
     }
 
-    /** @return SkillCatalogEntry[] */
+    /** @return array<int, array{name: string, description: string}> */
     public function catalog(): array
     {
         return $this->catalog;
@@ -45,8 +47,8 @@ class SkillRepository
 
         try {
             $contents = $this->storage->read($name, self::MANIFEST);
-        } catch (SkillStorageException $exception) {
-            return $this->instructionStorageError($name, $exception->error);
+        } catch (ToolException $exception) {
+            return $exception->getMessage();
         }
 
         $document = $this->parseManifest($contents);
@@ -63,13 +65,13 @@ class SkillRepository
             return sprintf('Skill "%s" is not available.', $name);
         }
         if ($path === '') {
-            return $this->resourceStorageError($name, $path, SkillStorageError::INVALID_PATH);
+            return 'Resource path "" is invalid.';
         }
 
         try {
             return $this->storage->read($name, $path);
-        } catch (SkillStorageException $exception) {
-            return $this->resourceStorageError($name, $path, $exception->error);
+        } catch (ToolException $exception) {
+            return $exception->getMessage();
         }
     }
 
@@ -81,7 +83,7 @@ class SkillRepository
         foreach ($packages as $package) {
             try {
                 $contents = $this->storage->read($package, self::MANIFEST);
-            } catch (SkillStorageException) {
+            } catch (ToolException) {
                 continue;
             }
 
@@ -99,7 +101,10 @@ class SkillRepository
                 continue;
             }
 
-            $this->catalog[] = new SkillCatalogEntry($name, $description);
+            $this->catalog[] = [
+                'name' => $name,
+                'description' => $description,
+            ];
             $this->availableSkills[$name] = true;
         }
     }
@@ -130,48 +135,4 @@ class SkillRepository
         ];
     }
 
-    protected function instructionStorageError(string $name, SkillStorageError $error): string
-    {
-        return match ($error) {
-            SkillStorageError::UNREADABLE => sprintf('Skill "%s" could not be read.', $name),
-            SkillStorageError::BINARY_CONTENT => sprintf(
-                'Skill "%s" contains unsupported binary content.',
-                $name,
-            ),
-            default => sprintf('Skill "%s" has an unavailable SKILL.md.', $name),
-        };
-    }
-
-    protected function resourceStorageError(string $name, string $path, SkillStorageError $error): string
-    {
-        return match ($error) {
-            SkillStorageError::PACKAGE_NOT_FOUND => sprintf('Skill "%s" is not available.', $name),
-            SkillStorageError::INVALID_PATH => sprintf('Resource path "%s" is invalid.', $path),
-            SkillStorageError::FILE_NOT_FOUND => sprintf(
-                'Resource "%s" was not found in skill "%s".',
-                $path,
-                $name,
-            ),
-            SkillStorageError::ESCAPES_PACKAGE => sprintf(
-                'Resource "%s" escapes skill "%s".',
-                $path,
-                $name,
-            ),
-            SkillStorageError::NOT_A_FILE => sprintf(
-                'Resource "%s" in skill "%s" is not a file.',
-                $path,
-                $name,
-            ),
-            SkillStorageError::UNREADABLE => sprintf(
-                'Resource "%s" in skill "%s" could not be read.',
-                $path,
-                $name,
-            ),
-            SkillStorageError::BINARY_CONTENT => sprintf(
-                'Resource "%s" in skill "%s" contains unsupported binary content.',
-                $path,
-                $name,
-            ),
-        };
-    }
 }

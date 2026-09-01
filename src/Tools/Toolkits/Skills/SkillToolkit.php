@@ -11,7 +11,7 @@ use function implode;
 
 class SkillToolkit extends AbstractToolkit
 {
-    /** @var SkillCatalogEntry[] */
+    /** @var array<int, array{name: string, description: string}> */
     protected array $catalog;
 
     public function __construct(protected SkillRepository $repository)
@@ -26,7 +26,7 @@ class SkillToolkit extends AbstractToolkit
         }
 
         $catalog = array_map(
-            fn (SkillCatalogEntry $skill): string => "- {$skill->name}: {$skill->description}",
+            fn (array $skill): string => "- {$skill['name']}: {$skill['description']}",
             $this->catalog,
         );
 
@@ -46,7 +46,7 @@ class SkillToolkit extends AbstractToolkit
         }
 
         $names = array_map(
-            fn (SkillCatalogEntry $skill): string => $skill->name,
+            fn (array $skill): string => $skill['name'],
             $this->catalog,
         );
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NeuronAI\Tools\Toolkits\Skills;
 
 use DirectoryIterator;
+use NeuronAI\Exceptions\ToolException;
 
 use function array_key_exists;
 use function array_keys;
@@ -40,33 +41,35 @@ class FileSystemSkillStorage implements SkillStorageInterface
     public function read(string $package, string $path): string
     {
         if (!array_key_exists($package, $this->packageDirectories)) {
-            throw new SkillStorageException(SkillStorageError::PACKAGE_NOT_FOUND);
+            throw new ToolException("Skill \"{$package}\" is not available.");
         }
         if (!$this->validPath($path)) {
-            throw new SkillStorageException(SkillStorageError::INVALID_PATH);
+            throw new ToolException("Resource path \"{$path}\" is invalid.");
         }
 
         $packageDirectory = $this->packageDirectories[$package];
         $file = realpath($packageDirectory.'/'.$path);
         if ($file === false) {
-            throw new SkillStorageException(SkillStorageError::FILE_NOT_FOUND);
+            throw new ToolException("Resource \"{$path}\" was not found in skill \"{$package}\".");
         }
         if ($file !== $packageDirectory && !$this->isWithin($file, $packageDirectory)) {
-            throw new SkillStorageException(SkillStorageError::ESCAPES_PACKAGE);
+            throw new ToolException("Resource \"{$path}\" escapes skill \"{$package}\".");
         }
         if (!is_file($file)) {
-            throw new SkillStorageException(SkillStorageError::NOT_A_FILE);
+            throw new ToolException("Resource \"{$path}\" in skill \"{$package}\" is not a file.");
         }
         if (!is_readable($file)) {
-            throw new SkillStorageException(SkillStorageError::UNREADABLE);
+            throw new ToolException("Resource \"{$path}\" in skill \"{$package}\" could not be read.");
         }
 
         $contents = file_get_contents($file);
         if ($contents === false) {
-            throw new SkillStorageException(SkillStorageError::UNREADABLE);
+            throw new ToolException("Resource \"{$path}\" in skill \"{$package}\" could not be read.");
         }
         if (str_contains($contents, "\0") || preg_match('//u', $contents) !== 1) {
-            throw new SkillStorageException(SkillStorageError::BINARY_CONTENT);
+            throw new ToolException(
+                "Resource \"{$path}\" in skill \"{$package}\" contains unsupported binary content.",
+            );
         }
 
         return $contents;

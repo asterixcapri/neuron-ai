@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace NeuronAI\Tests\Tools\Skills;
 
 use FilesystemIterator;
+use NeuronAI\Exceptions\ToolException;
 use NeuronAI\Tools\Toolkits\Skills\FileSystemSkillStorage;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageError;
-use NeuronAI\Tools\Toolkits\Skills\SkillStorageException;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -119,7 +118,7 @@ class FileSystemSkillStorageTest extends TestCase
         symlink($this->outsideRoot.'/secret.md', $this->skillsRoot.'/writing/secret-link.md');
 
         $this->assertStorageError(
-            SkillStorageError::ESCAPES_PACKAGE,
+            'Resource "secret-link.md" escapes skill "writing".',
             fn (): string => (new FileSystemSkillStorage($this->skillsRoot))->read('writing', 'secret-link.md'),
         );
     }
@@ -130,7 +129,7 @@ class FileSystemSkillStorageTest extends TestCase
         mkdir($this->skillsRoot.'/writing');
 
         $this->assertStorageError(
-            SkillStorageError::INVALID_PATH,
+            "Resource path \"{$path}\" is invalid.",
             fn (): string => (new FileSystemSkillStorage($this->skillsRoot))->read('writing', $path),
         );
     }
@@ -149,21 +148,21 @@ class FileSystemSkillStorageTest extends TestCase
         ];
     }
 
-    public function test_reports_unknown_packages_missing_files_and_directories_with_typed_errors(): void
+    public function test_reports_unknown_packages_missing_files_and_directories(): void
     {
         mkdir($this->skillsRoot.'/writing/references', 0o777, true);
         $storage = new FileSystemSkillStorage($this->skillsRoot);
 
         $this->assertStorageError(
-            SkillStorageError::PACKAGE_NOT_FOUND,
+            'Skill "missing" is not available.',
             fn (): string => $storage->read('missing', 'guide.md'),
         );
         $this->assertStorageError(
-            SkillStorageError::FILE_NOT_FOUND,
+            'Resource "missing.md" was not found in skill "writing".',
             fn (): string => $storage->read('writing', 'missing.md'),
         );
         $this->assertStorageError(
-            SkillStorageError::NOT_A_FILE,
+            'Resource "references" in skill "writing" is not a file.',
             fn (): string => $storage->read('writing', 'references'),
         );
     }
@@ -181,7 +180,7 @@ class FileSystemSkillStorageTest extends TestCase
 
         try {
             $this->assertStorageError(
-                SkillStorageError::UNREADABLE,
+                'Resource "locked.txt" in skill "writing" could not be read.',
                 fn (): string => (new FileSystemSkillStorage($this->skillsRoot))->read('writing', 'locked.txt'),
             );
         } finally {
@@ -196,7 +195,7 @@ class FileSystemSkillStorageTest extends TestCase
         file_put_contents($this->skillsRoot.'/writing/content.bin', $contents);
 
         $this->assertStorageError(
-            SkillStorageError::BINARY_CONTENT,
+            'Resource "content.bin" in skill "writing" contains unsupported binary content.',
             fn (): string => (new FileSystemSkillStorage($this->skillsRoot))->read('writing', 'content.bin'),
         );
     }
@@ -211,13 +210,13 @@ class FileSystemSkillStorageTest extends TestCase
     }
 
     /** @param callable(): string $read */
-    protected function assertStorageError(SkillStorageError $expected, callable $read): void
+    protected function assertStorageError(string $expected, callable $read): void
     {
         try {
             $read();
             $this->fail('Expected a storage exception.');
-        } catch (SkillStorageException $exception) {
-            $this->assertSame($expected, $exception->error);
+        } catch (ToolException $exception) {
+            $this->assertSame($expected, $exception->getMessage());
         }
     }
 

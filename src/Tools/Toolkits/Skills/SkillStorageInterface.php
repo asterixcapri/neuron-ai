@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace NeuronAI\Tools\Toolkits\Skills;
 
+use NeuronAI\Exceptions\ToolException;
+
 interface SkillStorageInterface
 {
     /** @return string[] */
     public function packages(): array;
 
-    /** @throws SkillStorageException */
+    /** @throws ToolException */
     public function read(string $package, string $path): string;
 }
