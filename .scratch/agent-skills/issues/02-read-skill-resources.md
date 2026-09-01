@@ -4,7 +4,7 @@
 
 **Blocked by:** 01: Register and load a filesystem skill.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] The existing `skill` tool accepts an optional path while preserving the name-only instruction-loading behavior delivered by ticket 01.
 - [ ] The repository's single textual read operation accepts the same optional logical path, keeping filesystem details out of the toolkit and custom repository contract.
