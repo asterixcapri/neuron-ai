@@ -425,31 +425,6 @@ class SkillToolkitTest extends TestCase
         $this->assertNotContains($firstResourceKey, $skillKeys);
     }
 
-    public function test_run_keys_ignore_inputs_outside_each_tools_natural_inputs(): void
-    {
-        [$skillTool, $resourceTool] = (new SkillToolkit(
-            new SkillRepository(new FileSystemSkillStorage($this->skillsRoot)),
-        ))->tools();
-        $this->assertInstanceOf(SkillTool::class, $skillTool);
-        $this->assertInstanceOf(SkillResourceTool::class, $resourceTool);
-
-        $skillTool->setInputs(['name' => 'writing']);
-        $skillKey = $skillTool->getRunKey();
-        $skillTool->setInputs(['name' => 'writing', 'path' => 'references/style.md']);
-
-        $this->assertSame($skillKey, $skillTool->getRunKey());
-
-        $resourceTool->setInputs(['name' => 'writing', 'path' => 'references/style.md']);
-        $resourceKey = $resourceTool->getRunKey();
-        $resourceTool->setInputs([
-            'name' => 'writing',
-            'path' => 'references/style.md',
-            'offset' => 10,
-        ]);
-
-        $this->assertSame($resourceKey, $resourceTool->getRunKey());
-    }
-
     public function test_empty_catalog_contributes_neither_guidelines_nor_tools(): void
     {
         unlink($this->skillsRoot.'/writing/scripts/check.php');

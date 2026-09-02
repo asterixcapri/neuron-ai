@@ -53,12 +53,4 @@ class SkillResourceTool extends Tool implements HasRunKey
 
         return $this->repository->readResource($name, $path);
     }
-
-    public function getRunKey(): string
-    {
-        return $this->buildRunKey([
-            'name' => $this->getInput('name'),
-            'path' => $this->getInput('path'),
-        ]);
-    }
 }
