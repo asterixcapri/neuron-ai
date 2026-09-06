@@ -8,6 +8,7 @@ use NeuronAI\Chat\Messages\Stream\Chunks\ReasoningChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\ToolCallChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\ToolResultChunk;
+use Throwable;
 
 use function json_encode;
 
@@ -20,7 +21,7 @@ use function json_encode;
  *
  * @see https://docs.ag-ui.com/concepts/events
  */
-class AGUIAdapter extends SSEAdapter
+class AGUIAdapter extends SSEAdapter implements ErrorAwareStreamAdapterInterface
 {
     protected ?string $threadId;
 
@@ -38,6 +39,8 @@ class AGUIAdapter extends SSEAdapter
 
     protected ?string $reasoningMessageId = null;
 
+    protected bool $runTerminated = false;
+
     /**
      * @param string|null $threadId Optional thread ID for conversation context
      * @param string|null $runId Optional run ID, echoed back to the client as required by the protocol
@@ -49,6 +52,10 @@ class AGUIAdapter extends SSEAdapter
 
     public function transform(object $chunk): iterable
     {
+        if ($this->runTerminated) {
+            return;
+        }
+
         yield from match (true) {
             $chunk instanceof TextChunk => $this->handleText($chunk),
             $chunk instanceof ReasoningChunk => $this->handleReasoning($chunk),
@@ -202,6 +209,10 @@ class AGUIAdapter extends SSEAdapter
 
     public function start(): iterable
     {
+        if ($this->runTerminated) {
+            return;
+        }
+
         $this->runId ??= $this->generateId('run');
 
         yield $this->sse([
@@ -258,6 +269,10 @@ class AGUIAdapter extends SSEAdapter
 
     public function end(): iterable
     {
+        if ($this->runTerminated) {
+            return;
+        }
+
         foreach ($this->endReasoning() as $event) {
             yield $event;
         }
@@ -267,11 +282,34 @@ class AGUIAdapter extends SSEAdapter
 
         // Emit RunFinished event
         if ($this->runId !== null) {
+            $this->runTerminated = true;
+
             yield $this->sse([
                 'type' => 'RUN_FINISHED',
                 'threadId' => $this->threadId,
                 'runId' => $this->runId,
             ]);
         }
+    }
+
+    public function error(Throwable $exception): iterable
+    {
+        if ($this->runTerminated) {
+            return;
+        }
+
+        foreach ($this->endReasoning() as $event) {
+            yield $event;
+        }
+        foreach ($this->endText() as $event) {
+            yield $event;
+        }
+
+        $this->runTerminated = true;
+
+        yield $this->sse([
+            'type' => 'RUN_ERROR',
+            'message' => 'The stream failed.',
+        ]);
     }
 }

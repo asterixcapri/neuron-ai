@@ -11,6 +11,7 @@ use NeuronAI\Chat\Messages\Stream\Chunks\ToolResultChunk;
 use NeuronAI\Chat\Messages\Stream\Adapters\VercelAIAdapter;
 use NeuronAI\Tools\Tool;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 use function iterator_to_array;
 use function json_decode;
@@ -48,6 +49,20 @@ class VercelAIAdapterTest extends TestCase
         $this->assertCount(2, $result);
         $this->assertStringContainsString('"type":"finish"', $result[0]);
         $this->assertStringContainsString('[DONE]', $result[1]);
+    }
+
+    public function test_error_returns_safe_error_and_terminates_the_stream(): void
+    {
+        $result = iterator_to_array($this->adapter->error(
+            new RuntimeException('Provider credentials must remain private.'),
+        ));
+
+        $this->assertCount(2, $result);
+        $this->assertStringContainsString('"type":"error"', $result[0]);
+        $this->assertStringContainsString('"errorText":"The stream failed."', $result[0]);
+        $this->assertStringContainsString('[DONE]', $result[1]);
+        $this->assertSame([], iterator_to_array($this->adapter->transform(new TextChunk('msg_1', 'Must not be emitted'))));
+        $this->assertSame([], iterator_to_array($this->adapter->end()));
     }
 
     public function test_transform_text_chunk(): void

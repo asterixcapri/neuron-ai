@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NeuronAI\Workflow;
 
 use Generator;
+use NeuronAI\Chat\Messages\Stream\Adapters\ErrorAwareStreamAdapterInterface;
 use NeuronAI\Chat\Messages\Stream\Adapters\StreamAdapterInterface;
 use NeuronAI\Exceptions\WorkflowException;
 use NeuronAI\Workflow\Interrupt\InterruptRequest;
@@ -38,34 +39,46 @@ class WorkflowHandler implements WorkflowHandlerInterface
             }
         }
 
-        // Stream events
-        $generator = $this->resumeRequest instanceof InterruptRequest
-            ? $this->workflow->resume($this->resumeRequest)
-            : $this->workflow->run();
+        try {
+            // Stream events
+            $generator = $this->resumeRequest instanceof InterruptRequest
+                ? $this->workflow->resume($this->resumeRequest)
+                : $this->workflow->run();
 
-        while ($generator->valid()) {
-            $event = $generator->current();
+            while ($generator->valid()) {
+                $event = $generator->current();
 
-            // Transform through adapter or yield raw event
+                // Transform through adapter or yield raw event
+                if ($adapter instanceof StreamAdapterInterface) {
+                    foreach ($adapter->transform($event) as $output) {
+                        yield $output;
+                    }
+                } else {
+                    yield $event;
+                }
+
+                $generator->next();
+            }
+
+            // Store the final result
+            $this->result = $generator->getReturn();
+
+            // Protocol end (if adapter provided)
             if ($adapter instanceof StreamAdapterInterface) {
-                foreach ($adapter->transform($event) as $output) {
+                foreach ($adapter->end() as $output) {
                     yield $output;
                 }
-            } else {
-                yield $event;
+            }
+        } catch (WorkflowInterrupt $interrupt) {
+            throw $interrupt;
+        } catch (Throwable $exception) {
+            if ($adapter instanceof ErrorAwareStreamAdapterInterface) {
+                foreach ($adapter->error($exception) as $output) {
+                    yield $output;
+                }
             }
 
-            $generator->next();
-        }
-
-        // Store the final result
-        $this->result = $generator->getReturn();
-
-        // Protocol end (if adapter provided)
-        if ($adapter instanceof StreamAdapterInterface) {
-            foreach ($adapter->end() as $output) {
-                yield $output;
-            }
+            throw $exception;
         }
 
         return $this->result;

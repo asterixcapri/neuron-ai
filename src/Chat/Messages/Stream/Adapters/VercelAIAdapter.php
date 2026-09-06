@@ -9,21 +9,28 @@ use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\ToolCallChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\ToolResultChunk;
 use NeuronAI\UniqueIdGenerator;
+use Throwable;
 
 /**
  * Adapter for Vercel AI SDK Data Stream Protocol.
  *
  * @see https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
  */
-class VercelAIAdapter extends SSEAdapter
+class VercelAIAdapter extends SSEAdapter implements ErrorAwareStreamAdapterInterface
 {
     protected bool $started = false;
+
+    protected bool $terminated = false;
 
     /** @var array<string, string> */
     protected array $toolCallIds = [];
 
     public function transform(object $chunk): iterable
     {
+        if ($this->terminated) {
+            return;
+        }
+
         // Lazy init on the first chunk
         if (!$this->started) {
             $this->started = true;
@@ -100,7 +107,28 @@ class VercelAIAdapter extends SSEAdapter
 
     public function end(): iterable
     {
+        if ($this->terminated) {
+            return;
+        }
+
+        $this->terminated = true;
+
         yield $this->sse(['type' => 'finish']);
+        yield "data: [DONE]\n\n";
+    }
+
+    public function error(Throwable $exception): iterable
+    {
+        if ($this->terminated) {
+            return;
+        }
+
+        $this->terminated = true;
+
+        yield $this->sse([
+            'type' => 'error',
+            'errorText' => 'The stream failed.',
+        ]);
         yield "data: [DONE]\n\n";
     }
 }

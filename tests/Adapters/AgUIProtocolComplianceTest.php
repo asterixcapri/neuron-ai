@@ -11,6 +11,7 @@ use NeuronAI\Chat\Messages\Stream\Chunks\ToolCallChunk;
 use NeuronAI\Chat\Messages\Stream\Chunks\ToolResultChunk;
 use NeuronAI\Tools\Tool;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 use function iterator_to_array;
 use function json_decode;
@@ -42,6 +43,7 @@ class AgUIProtocolComplianceTest extends TestCase
     private const REQUIRED_FIELDS = [
         'RUN_STARTED' => ['runId', 'threadId'],
         'RUN_FINISHED' => ['runId', 'threadId'],
+        'RUN_ERROR' => ['message'],
         'TEXT_MESSAGE_START' => ['messageId', 'role'],
         'TEXT_MESSAGE_CONTENT' => ['messageId', 'delta'],
         'TEXT_MESSAGE_END' => ['messageId'],
@@ -173,6 +175,26 @@ class AgUIProtocolComplianceTest extends TestCase
         $this->assertSame('run_custom', $last['runId']);
     }
 
+    public function test_error_terminates_the_run_without_exposing_the_exception(): void
+    {
+        $adapter = new AGUIAdapter('thread_custom', 'run_custom');
+
+        $events = $this->collect(
+            $adapter->start(),
+            $adapter->transform(new TextChunk('msg_1', 'Partial answer')),
+            $adapter->error(new RuntimeException('Provider credentials must remain private.')),
+            $adapter->transform(new TextChunk('msg_1', 'Must not be emitted')),
+            $adapter->end(),
+        );
+
+        $this->assertCompliant($events);
+        $this->assertSame(
+            ['RUN_STARTED', 'TEXT_MESSAGE_START', 'TEXT_MESSAGE_CONTENT', 'TEXT_MESSAGE_END', 'RUN_ERROR'],
+            array_column($events, 'type'),
+        );
+        $this->assertSame('The stream failed.', $events[array_key_last($events)]['message']);
+    }
+
     /**
      * Parse SSE frames into decoded event payloads.
      *
@@ -209,7 +231,11 @@ class AgUIProtocolComplianceTest extends TestCase
 
         $first = $events[0];
         $this->assertSame('RUN_STARTED', $first['type'], 'First event must be RUN_STARTED');
-        $this->assertSame('RUN_FINISHED', $events[array_key_last($events)]['type'], 'Last event must be RUN_FINISHED');
+        $this->assertContains(
+            $events[array_key_last($events)]['type'],
+            ['RUN_FINISHED', 'RUN_ERROR'],
+            'Last event must terminate the run',
+        );
 
         $openText = null;
         $openReasoning = null;
@@ -237,6 +263,11 @@ class AgUIProtocolComplianceTest extends TestCase
                 case 'RUN_FINISHED':
                     $this->assertSame($runId, $event['runId'], 'RUN_FINISHED.runId must match RUN_STARTED');
                     $this->assertSame($threadId, $event['threadId'], 'RUN_FINISHED.threadId must match RUN_STARTED');
+                    break;
+
+                case 'RUN_ERROR':
+                    $this->assertIsString($event['message']);
+                    $this->assertNotSame('', $event['message']);
                     break;
 
                 case 'TEXT_MESSAGE_START':
