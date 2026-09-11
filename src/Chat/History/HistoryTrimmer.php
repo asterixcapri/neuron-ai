@@ -330,6 +330,7 @@ class HistoryTrimmer implements HistoryTrimmerInterface
 
         $expectingUser = true;
         $previousMessage = null;
+        $allowsInterruptedUser = false;
 
         foreach ($messages as $index => $message) {
             $role = $message->getRole();
@@ -344,7 +345,8 @@ class HistoryTrimmer implements HistoryTrimmerInterface
                         )
                     );
                 }
-                // After a tool result, we still expect assistant to continue
+                // A completed interrupted batch may instead start a new user turn.
+                $allowsInterruptedUser = $previousMessage->getMetadata('stop_reason') === 'interrupted';
                 $expectingUser = false;
                 $previousMessage = $message;
                 continue;
@@ -363,11 +365,16 @@ class HistoryTrimmer implements HistoryTrimmerInterface
                 }
                 // After tool call, we expect tool result or user
                 $expectingUser = true;
+                $allowsInterruptedUser = false;
                 $previousMessage = $message;
                 continue;
             }
 
             // Regular messages must follow the expected alternation
+            if ($allowsInterruptedUser && $role === MessageRole::USER->value) {
+                $expectingUser = true;
+            }
+
             $expectedRole = $expectingUser ? MessageRole::USER->value : MessageRole::ASSISTANT->value;
             if ($role !== $expectedRole) {
                 throw new ChatHistoryException(
@@ -382,6 +389,8 @@ class HistoryTrimmer implements HistoryTrimmerInterface
 
             // Toggle expected role for next iteration
             $expectingUser = !$expectingUser;
+            $allowsInterruptedUser = $role === MessageRole::USER->value
+                && $message->getMetadata('stop_reason') === 'interrupted';
             $previousMessage = $message;
         }
     }
